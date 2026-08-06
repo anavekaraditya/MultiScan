@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
+import 'services/scan_store.dart';
+import 'services/vision_scanner_service.dart';
 
 void main() => runApp(const MultiScanApp());
 
@@ -11,16 +14,18 @@ enum CellStatus { accepted, retake, review }
 enum SessionState { idle, active }
 
 class DemoCell {
-  const DemoCell(this.position, this.status, this.imei, this.reason);
+  const DemoCell(this.position, this.status, this.imei, this.reason, {this.source = 'none', this.confidence = 0});
   final String position;
   final CellStatus status;
   final String? imei;
   final String reason;
+  final String source;
+  final double confidence;
 }
 
 List<DemoCell> buildDemoCells() => List.generate(15, (index) {
-      final row = index ~/ 5 + 1;
-      final column = index % 5 + 1;
+      final row = index ~/ 3 + 1;
+      final column = index % 3 + 1;
       final position = 'R${row}C$column';
       if (index == 7) return DemoCell(position, CellStatus.retake, null, 'No readable IMEI');
       if (index == 12) return DemoCell(position, CellStatus.review, null, 'Demo review required');
@@ -64,6 +69,29 @@ class _AppShellState extends State<AppShell> {
   int totalDevicesScanned = 10000;
   int activeTrayNumber = 3;
   List<DemoCell> cells = buildDemoCells();
+  List<StoredScanSummary> recentScans = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreLatestScan();
+  }
+
+  Future<void> _restoreLatestScan() async {
+    try {
+      final stored = await ScanStore.instance.loadLatest();
+      final recent = await ScanStore.instance.loadRecent();
+      if (mounted) setState(() => recentScans = recent);
+      if (!mounted || stored == null || stored.cells.isEmpty) return;
+      setState(() {
+        activeTrayNumber = stored.trayNumber;
+        cells = stored.cells.map(_toDemoCell).toList();
+        currentSessionDevices = cells.where((cell) => cell.status == CellStatus.accepted).length;
+      });
+    } catch (_) {
+      // A missing or newly upgraded local database must not block the UI.
+    }
+  }
 
   void startSession() => setState(() { sessionState = SessionState.active; currentSessionDevices = 0; });
   void endSession() => setState(() { sessionState = SessionState.idle; currentSessionDevices = 0; });
@@ -72,25 +100,41 @@ class _AppShellState extends State<AppShell> {
     final scanTrayNumber = activeTrayNumber + (nextTray ? 1 : 0);
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => CapturePage(onProcessed: (result) => openReview(result, trayNumber: scanTrayNumber, replaceCurrent: replaceCurrent))));
   }
-  void openReview(List<DemoCell> scannedCells, {required int trayNumber, required bool replaceCurrent}) {
+  void openReview(VisionScanResult result, {required int trayNumber, required bool replaceCurrent}) {
+    final scannedCells = result.cells.map(_toDemoCell).toList();
+    final scanId = DateTime.now().microsecondsSinceEpoch.toString();
+    unawaited(ScanStore.instance.saveScan(scanId: scanId, trayNumber: trayNumber, result: result));
+    unawaited(_refreshRecentScans());
     setState(() { cells = scannedCells; activeTrayNumber = trayNumber; currentSessionDevices += scannedCells.where((cell) => cell.status == CellStatus.accepted).length; });
     final navigator = Navigator.of(context);
     if (replaceCurrent) navigator.pop();
     navigator.push(MaterialPageRoute(builder: (_) => ReviewPage(trayNumber: trayNumber, cells: cells, onCellsChanged: (value) => setState(() => cells = value), onRescan: () => openCapture(replaceCurrent: true), onNextTray: () => openCapture(nextTray: true))));
   }
+
+  DemoCell _toDemoCell(VisionCellResult cell) => DemoCell(cell.position, switch (cell.status) {
+        VisionCellStatus.accepted => CellStatus.accepted,
+        VisionCellStatus.review => CellStatus.review,
+        VisionCellStatus.retake => CellStatus.retake,
+      }, cell.imei, cell.reason, source: cell.source, confidence: cell.confidence);
+
+  Future<void> _refreshRecentScans() async {
+    final recent = await ScanStore.instance.loadRecent();
+    if (mounted) setState(() => recentScans = recent);
+  }
   void connectSheet() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Google Sheets connection will be available in a future update.')));
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(sessionState: sessionState, sheetLinked: sheetLinked, linkedSheetName: linkedSheetName, connectingSheet: connectingSheet, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, onConnectSheet: connectSheet, onStartSession: startSession, onScan: openCapture, onEndSession: endSession)));
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(sessionState: sessionState, sheetLinked: sheetLinked, linkedSheetName: linkedSheetName, connectingSheet: connectingSheet, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, recentScans: recentScans, onConnectSheet: connectSheet, onStartSession: startSession, onScan: openCapture, onEndSession: endSession)));
 }
 
 class HomePage extends StatelessWidget {
-  const HomePage({required this.sessionState, required this.sheetLinked, required this.linkedSheetName, required this.connectingSheet, required this.currentSessionDevices, required this.totalDevicesScanned, required this.onConnectSheet, required this.onStartSession, required this.onScan, required this.onEndSession, super.key});
+  const HomePage({required this.sessionState, required this.sheetLinked, required this.linkedSheetName, required this.connectingSheet, required this.currentSessionDevices, required this.totalDevicesScanned, required this.recentScans, required this.onConnectSheet, required this.onStartSession, required this.onScan, required this.onEndSession, super.key});
   final SessionState sessionState;
   final bool sheetLinked;
   final String? linkedSheetName;
   final bool connectingSheet;
   final int currentSessionDevices;
   final int totalDevicesScanned;
+  final List<StoredScanSummary> recentScans;
   final VoidCallback onConnectSheet;
   final VoidCallback onStartSession;
   final VoidCallback onScan;
@@ -132,7 +176,7 @@ class HomePage extends StatelessWidget {
                     ]),
                     const SizedBox(height: 28),
                     Row(children: [
-                      Expanded(child: _InfoCard(title: 'Connect Output', child: InkWell(onTap: connectingSheet ? null : onConnectSheet, child: Row(children: [Icon(Icons.table_chart, color: sheetLinked ? const Color(0xff26834a) : const Color(0xff269452), size: 25), const SizedBox(width: 10), Expanded(child: Text(connectingSheet ? 'Connecting…' : sheetLinked ? linkedSheetName ?? 'Google Sheet linked' : 'Google Sheet\nnot connected', style: const TextStyle(fontSize: 14, height: 1.15)))])))),
+                      Expanded(child: _InfoCard(title: 'Local Storage', child: Row(children: [const Icon(Icons.storage_outlined, color: Color(0xff23739a), size: 25), const SizedBox(width: 10), const Expanded(child: Text('Saved on this iPhone\nSQLite enabled', style: TextStyle(fontSize: 14, height: 1.15)))]))),
                       const SizedBox(width: 18),
                       Expanded(
                         child: _InfoCard(
@@ -147,11 +191,10 @@ class HomePage extends StatelessWidget {
                     const SizedBox(height: 28),
                     const Row(children: [Text('Recent Activity', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)), Spacer(), Icon(Icons.chevron_right)]),
                     const SizedBox(height: 12),
-                    const _ActivityRow(date: '4 Aug', session: 'Session 1', devices: '300 devices'),
-                    const _ActivityRow(date: '3 Aug', session: 'Session 1', devices: '200 devices'),
-                    const _ActivityRow(date: '2 Aug', session: 'Session 2', devices: '50 devices'),
-                    const _ActivityRow(date: '2 Aug', session: 'Session 1', devices: '150 devices'),
-                    const _ActivityRow(date: '1 Aug', session: 'Session 1', devices: '100 devices'),
+                    if (recentScans.isEmpty)
+                      const _ActivityRow(date: '—', session: 'No scans yet', devices: '0 devices')
+                    else
+                      ...recentScans.map((scan) => _ActivityRow(date: _shortDate(scan.createdAt), session: 'Tray ${scan.trayNumber}', devices: '${scan.accepted}/${scan.total} devices')),
                   ]),
                 ),
               ],
@@ -160,6 +203,9 @@ class HomePage extends StatelessWidget {
         ],
       );
 }
+
+String _shortDate(DateTime date) => '${date.day} ${_monthName(date.month)}';
+String _monthName(int month) => const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
 
 class _LargeAction extends StatelessWidget { const _LargeAction({required this.label, required this.icon, required this.color, required this.enabled, required this.onPressed}); final String label; final IconData icon; final Color color; final bool enabled; final VoidCallback onPressed; @override Widget build(BuildContext context) => SizedBox(height: 72, child: FilledButton(onPressed: enabled ? onPressed : null, style: FilledButton.styleFrom(backgroundColor: color, disabledBackgroundColor: const Color(0xffeeeeee), foregroundColor: Colors.white, disabledForegroundColor: Colors.black26, minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13))), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)))), const SizedBox(width: 8), Icon(icon, size: 24)]))); }
 class _ScanAction extends StatelessWidget { const _ScanAction({required this.enabled, required this.onPressed}); final bool enabled; final VoidCallback onPressed; @override Widget build(BuildContext context) => SizedBox(width: 72, height: 72, child: FilledButton(onPressed: enabled ? onPressed : null, style: FilledButton.styleFrom(backgroundColor: const Color(0xffeeeeee), disabledBackgroundColor: const Color(0xfff5f5f5), foregroundColor: Colors.black, disabledForegroundColor: Colors.black26, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)), padding: EdgeInsets.zero), child: const Icon(Icons.qr_code_scanner, size: 38))); }
@@ -230,7 +276,7 @@ class _ActionButton extends StatelessWidget {
 
 class CapturePage extends StatefulWidget {
   const CapturePage({required this.onProcessed, super.key});
-  final ValueChanged<List<DemoCell>> onProcessed;
+  final ValueChanged<VisionScanResult> onProcessed;
 
   @override
   State<CapturePage> createState() => _CapturePageState();
@@ -238,6 +284,7 @@ class CapturePage extends StatefulWidget {
 
 class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   CameraController? controller;
+  final ImagePicker picker = ImagePicker();
   Future<void>? cameraInitialization;
   String? cameraError;
   bool processing = false;
@@ -293,19 +340,35 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
   Future<void> capture() async {
     final activeController = controller;
     if (activeController == null || !activeController.value.isInitialized || activeController.value.isTakingPicture) return;
+    XFile photo;
     try {
-      await activeController.takePicture();
+      photo = await activeController.takePicture();
     } on CameraException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.description ?? 'Could not capture the tray.')));
       return;
     }
+    await processImage(photo.path);
+  }
+
+  Future<void> choosePhoto() async {
+    final photo = await picker.pickImage(source: ImageSource.gallery, imageQuality: 100);
+    if (photo != null) await processImage(photo.path);
+  }
+
+  Future<void> processImage(String imagePath) async {
+    if (processing) return;
     setState(() => processing = true);
-    Timer(const Duration(milliseconds: 300), () {
+    try {
+      final result = await VisionScannerService.instance.analyzeTray(imagePath);
       if (!mounted) return;
       Navigator.of(context).pop();
-      widget.onProcessed(buildDemoCells());
-    });
+      widget.onProcessed(result);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not process the tray: $error')));
+    }
   }
 
   @override
@@ -313,13 +376,17 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
         appBar: AppBar(title: const Text('Capture tray'), leading: const BackButton()),
         body: processing ? const _ProcessingView() : Column(children: [
           Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Fit the tray inside the frame', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+            const Text('Fit the tray or device inside the frame', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             const Text('Keep all four tray edges visible. Hold steady and avoid glare on the labels.', style: TextStyle(color: Color(0xff505565), height: 1.35)),
             const SizedBox(height: 20),
             Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(24), child: _CameraPreview(controller: controller, error: cameraError))),
           ]))),
-          Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), child: SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: controller?.value.isInitialized == true ? capture : null, icon: const Icon(Icons.camera), label: const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Text('Take photo'))))),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), child: Row(children: [
+            Expanded(child: FilledButton.icon(onPressed: controller?.value.isInitialized == true ? capture : null, icon: const Icon(Icons.camera_alt_outlined), label: const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Text('Take photo')))),
+            const SizedBox(width: 12),
+            Expanded(child: OutlinedButton.icon(onPressed: choosePhoto, icon: const Icon(Icons.photo_library_outlined), label: const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Text('Choose photo')))),
+          ])),
         ]),
       );
 }
@@ -337,7 +404,7 @@ class _CameraPreview extends StatelessWidget {
     return Stack(fit: StackFit.expand, children: [
       CameraPreview(activeController),
       IgnorePointer(child: CustomPaint(painter: _TrayGuidePainter())),
-      const Positioned(left: 16, right: 16, bottom: 16, child: Text('Fit all 15 devices inside the guide', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 4)]))),
+      const Positioned(left: 16, right: 16, bottom: 16, child: Text('Fit the tray or device inside the guide', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 4)]))),
     ]);
   }
 }
@@ -386,7 +453,7 @@ class _ProcessingView extends StatelessWidget {
   Widget build(BuildContext context) => Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         const CircularProgressIndicator(),
         const SizedBox(height: 24),
-        const Text('Reading 15 device positions', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+        const Text('Finding barcodes and IMEIs', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
         const Text('Checking barcode and printed IMEI evidence. This usually takes a few seconds.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xff505565), height: 1.35)),
       ])));
@@ -413,7 +480,7 @@ class _ReviewPageState extends State<ReviewPage> {
       appBar: AppBar(title: Text('Tray ${widget.trayNumber}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)), leading: const BackButton()),
       body: ListView(padding: const EdgeInsets.fromLTRB(22, 8, 22, 24), children: [
         ExpansionPanelList.radio(
-          initialOpenPanelValue: 3,
+          initialOpenPanelValue: widget.trayNumber,
           elevation: 0,
           expandedHeaderPadding: EdgeInsets.zero,
           dividerColor: const Color(0xffe3e3e3),

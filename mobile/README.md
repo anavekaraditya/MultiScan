@@ -1,39 +1,43 @@
 # MultiScan mobile
 
-## Google Sheets connection setup
+## iOS Vision scanner
 
-The app now supports this flow:
+The current prototype scans locally on iOS using Apple Vision. Google Sheets,
+cloud processing, and Android recognition are intentionally disabled for this
+phase.
 
-1. Tap **Connect Google Sheets**.
-2. Sign in with Google.
-3. Approve spreadsheet and read-only Drive access.
-4. Choose a spreadsheet from the account.
-5. The selected spreadsheet name appears in the linked-status row.
+The scanner accepts either:
 
-The implementation uses `google_sign_in` for user OAuth and the Drive files API to list only non-trashed Google Sheets. It does not ship a service-account key in the app.
+- a photo of one device or one label; or
+- a photo of the full tray.
 
-Before testing on iOS, create or configure an OAuth client for the app in Google Cloud/Firebase and add the iOS client configuration to `ios/Runner/Info.plist`:
+Vision scans the complete image for all barcode payloads and printed text. A
+single-device photo produces only the detected positions (`P1`, `P2`, ...).
+When enough spatial evidence indicates a tray, the results are mapped to the
+15-cell layout (`R1C1` through `R5C3`). Candidates must be 15 digits and pass
+the IMEI Luhn check. Barcode/OCR disagreements remain in review instead of
+being silently accepted.
 
-```xml
-<key>GIDClientID</key>
-<string>YOUR_IOS_CLIENT_ID</string>
-<key>CFBundleURLTypes</key>
-<array>
-  <dict>
-    <key>CFBundleTypeRole</key>
-    <string>Editor</string>
-    <key>CFBundleURLSchemes</key>
-    <array>
-      <string>YOUR_REVERSED_CLIENT_ID</string>
-    </array>
-  </dict>
-</array>
-```
+## Test on an iPhone
 
-Alternatively, pass the iOS client ID at build time:
+From the project root:
 
 ```bash
-flutter run --dart-define=GOOGLE_IOS_CLIENT_ID=YOUR_IOS_CLIENT_ID
+cd mobile
+flutter clean
+flutter pub get
+cd ios
+pod install
+cd ..
+flutter run -d <your-iphone>
 ```
 
-The reversed client ID URL scheme is still required in `Info.plist` so iOS can return to the app after Google authentication.
+Allow camera and photo-library access when prompted. Tap **Start Session**,
+then **Scan**. Use **Take photo** for a new capture or **Choose photo** to
+select a tray or close-up label from Photos. The scan is saved locally in the
+app’s SQLite database, including the original image reference and each result.
+
+For the first accuracy pass, collect labeled examples for every physical tray
+position, including rotated labels, glare, blur, missing devices, and damaged
+labels. The attached images are smoke-test fixtures only and do not provide a
+complete ground-truth manifest.
