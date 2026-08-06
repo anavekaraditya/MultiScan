@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
