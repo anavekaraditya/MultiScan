@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MultiScan Dashboard</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; color: #17202a; background: #f6f8fa; }
+    body { max-width: 960px; margin: 0 auto; padding: 32px 20px 56px; }
+    h1 { margin: 0 0 8px; font-size: 32px; } p { color: #64707d; }
+    button { border: 0; border-radius: 10px; padding: 12px 16px; background: #246da0; color: white; font-weight: 700; cursor: pointer; }
+    button.secondary { background: #e7eef3; color: #246da0; }
+    .card { background: white; border: 1px solid #e3e9ee; border-radius: 16px; padding: 20px; margin-top: 18px; box-shadow: 0 8px 24px #1d34420d; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .spacer { flex: 1; }
+    .code { font-size: 30px; font-weight: 800; letter-spacing: 5px; color: #246da0; }
+    .metric { display: inline-flex; flex-direction: column; min-width: 150px; padding: 14px; background: #e9f3f7; border-radius: 12px; }
+    .metric strong { font-size: 28px; } .metric span { color: #64707d; font-size: 13px; }
+    textarea { width: 100%; min-height: 240px; box-sizing: border-box; border: 1px solid #d9e1e7; border-radius: 10px; padding: 14px; font: 16px ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; } th, td { text-align: left; padding: 11px 8px; border-bottom: 1px solid #edf0f2; } th { color: #64707d; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .hidden { display: none; } .error { color: #b42318; } .muted { color: #64707d; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>MultiScan</h1>
+  <p>Live IMEI dashboard for the current scanning session.</p>
+  <section id="start" class="card">
+    <div class="row"><div><strong>Start a laptop session</strong><div class="muted">Join this session from the iPhone scanner.</div></div><div class="spacer"></div><button onclick="createSession()">New session</button></div>
+    <p id="startError" class="error"></p>
+  </section>
+  <section id="session" class="hidden">
+    <div class="card"><div class="row"><div><div class="muted">Session code</div><div id="code" class="code"></div></div><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button onclick="newSession()">New session</button></div><p class="muted">On the iPhone, enter this code and the laptop’s local network address.</p></div>
+    <div class="card"><div class="row"><div class="metric"><strong id="deviceCount">0</strong><span>accepted IMEIs</span></div><div class="metric"><strong id="batchCount">0</strong><span>scan batches</span></div><div class="spacer"></div><span id="connection" class="muted">Connecting…</span></div></div>
+    <div class="card"><div class="row"><strong>IMEI list</strong><div class="spacer"></div><span class="muted">One per line; duplicates are preserved.</span></div><textarea id="imeiText" readonly></textarea><table><thead><tr><th>IMEI</th><th>Tray</th><th>Position</th><th>Source</th></tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+<script>
+let sessionCode = new URLSearchParams(location.search).get('session'); let state = null; let socket = null;
+function showSession() { document.getElementById('start').classList.add('hidden'); document.getElementById('session').classList.remove('hidden'); document.getElementById('code').textContent = sessionCode; }
+async function createSession() { const response = await fetch('/v1/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); const data = await response.json(); sessionCode = data.session_code; history.replaceState({}, '', '?session=' + sessionCode); showSession(); await refresh(); connect(); }
+function newSession() { sessionCode = null; state = null; if (socket) socket.close(); document.getElementById('session').classList.add('hidden'); document.getElementById('start').classList.remove('hidden'); }
+async function refresh() { const response = await fetch('/v1/sessions/' + sessionCode); if (!response.ok) return; state = await response.json(); render(); }
+function render() { document.getElementById('deviceCount').textContent = state.device_count; document.getElementById('batchCount').textContent = state.batch_count; document.getElementById('imeiText').value = state.imeis.map(x => x.imei).join('\n'); document.getElementById('rows').innerHTML = state.imeis.map(x => `<tr><td>${x.imei}</td><td>${x.tray_number}</td><td>${x.position}</td><td>${x.source}</td></tr>`).join(''); }
+function connect() { socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/v1/sessions/' + sessionCode + '/events'); socket.onopen = () => document.getElementById('connection').textContent = 'Live'; socket.onclose = () => { document.getElementById('connection').textContent = 'Reconnecting…'; setTimeout(connect, 2000); }; setInterval(refresh, 2000); }
+async function copyImeis() { await navigator.clipboard.writeText(document.getElementById('imeiText').value); }
+if (sessionCode) { showSession(); refresh().then(connect); }
+</script>
+</body>
+</html>

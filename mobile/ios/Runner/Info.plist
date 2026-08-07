@@ -6,6 +6,13 @@
 	<string>MultiScan uses the camera to photograph device trays and read IMEI labels.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>MultiScan uses selected tray photos to detect IMEI numbers.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>MultiScan connects to the laptop dashboard on your local network.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

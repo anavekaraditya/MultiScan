@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+    from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field
 except ImportError:  # Keeps the domain usable before optional API dependencies are installed.
     FastAPI = None
 
 from .domain import Evidence, ScanBatch, all_positions, resolve_evidence
+from .session_store import DashboardCell, SessionStore
 
 
 class EvidenceInput(BaseModel):
@@ -25,6 +28,21 @@ class ScanRequest(BaseModel):
     operator_id: str = Field(min_length=1)
     batch_id: str | None = None
     cells: dict[str, EvidenceInput]
+
+
+class DashboardCellInput(BaseModel):
+    position: str = Field(min_length=1)
+    imei: str | None = None
+    status: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    confidence: float = Field(0, ge=0, le=1)
+    reason: str = Field(min_length=1)
+
+
+class DashboardBatchRequest(BaseModel):
+    batch_id: str = Field(min_length=1)
+    tray_number: int = Field(ge=1)
+    cells: list[DashboardCellInput]
 
 
 def process_scan(request: ScanRequest) -> dict[str, Any]:
@@ -50,6 +68,8 @@ def process_scan(request: ScanRequest) -> dict[str, Any]:
 
 if FastAPI:
     app = FastAPI(title="MultiScan API", version="0.1.0")
+    sessions = SessionStore()
+    dashboard_path = Path(__file__).with_name("dashboard.html")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -61,5 +81,41 @@ if FastAPI:
             return process_scan(request)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    def dashboard() -> HTMLResponse:
+        return HTMLResponse(dashboard_path.read_text(encoding="utf-8"))
+
+    @app.post("/v1/sessions")
+    def create_session() -> dict[str, Any]:
+        return sessions.create().snapshot()
+
+    @app.get("/v1/sessions/{session_code}")
+    def get_session(session_code: str) -> dict[str, Any]:
+        session = sessions.get(session_code)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return session.snapshot()
+
+    @app.post("/v1/sessions/{session_code}/batches")
+    async def add_dashboard_batch(session_code: str, request: DashboardBatchRequest) -> dict[str, Any]:
+        session = sessions.get(session_code)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        cells = [DashboardCell(**cell.model_dump()) for cell in request.cells]
+        added = sessions.add_batch(session, request.batch_id, request.tray_number, cells)
+        return {"accepted": added, **session.snapshot()}
+
+    @app.websocket("/v1/sessions/{session_code}/events")
+    async def session_events(websocket: WebSocket, session_code: str) -> None:
+        if sessions.get(session_code) is None:
+            await websocket.close(code=1008)
+            return
+        await websocket.accept()
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            return
 else:
     app = None

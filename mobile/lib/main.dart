@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'services/scan_store.dart';
+import 'services/dashboard_sync_service.dart';
 import 'services/vision_scanner_service.dart';
 
 void main() => runApp(const MultiScanApp());
@@ -14,13 +16,14 @@ enum CellStatus { accepted, retake, review }
 enum SessionState { idle, active }
 
 class DemoCell {
-  const DemoCell(this.position, this.status, this.imei, this.reason, {this.source = 'none', this.confidence = 0});
+  const DemoCell(this.position, this.status, this.imei, this.reason, {this.source = 'none', this.confidence = 0, this.boxes = const []});
   final String position;
   final CellStatus status;
   final String? imei;
   final String reason;
   final String source;
   final double confidence;
+  final List<VisionBox> boxes;
 }
 
 List<DemoCell> buildDemoCells() => List.generate(15, (index) {
@@ -62,9 +65,8 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   SessionState sessionState = SessionState.idle;
-  bool sheetLinked = false;
-  bool connectingSheet = false;
-  String? linkedSheetName;
+  bool dashboardLinked = false;
+  bool connectingDashboard = false;
   int currentSessionDevices = 0;
   int totalDevicesScanned = 10000;
   int activeTrayNumber = 3;
@@ -106,36 +108,90 @@ class _AppShellState extends State<AppShell> {
     unawaited(ScanStore.instance.saveScan(scanId: scanId, trayNumber: trayNumber, result: result));
     unawaited(_refreshRecentScans());
     setState(() { cells = scannedCells; activeTrayNumber = trayNumber; currentSessionDevices += scannedCells.where((cell) => cell.status == CellStatus.accepted).length; });
+    if (dashboardLinked) unawaited(_syncToDashboard(result: result, batchId: scanId, trayNumber: trayNumber));
     final navigator = Navigator.of(context);
     if (replaceCurrent) navigator.pop();
-    navigator.push(MaterialPageRoute(builder: (_) => ReviewPage(trayNumber: trayNumber, cells: cells, onCellsChanged: (value) => setState(() => cells = value), onRescan: () => openCapture(replaceCurrent: true), onNextTray: () => openCapture(nextTray: true))));
+    navigator.push(MaterialPageRoute(builder: (_) => ReviewPage(imagePath: result.imagePath, trayNumber: trayNumber, cells: cells, onCellsChanged: (value) => setState(() => cells = value), onRescan: () => openCapture(replaceCurrent: true), onNextTray: () => openCapture(nextTray: true))));
   }
 
   DemoCell _toDemoCell(VisionCellResult cell) => DemoCell(cell.position, switch (cell.status) {
         VisionCellStatus.accepted => CellStatus.accepted,
         VisionCellStatus.review => CellStatus.review,
         VisionCellStatus.retake => CellStatus.retake,
-      }, cell.imei, cell.reason, source: cell.source, confidence: cell.confidence);
+      }, cell.imei, cell.reason, source: cell.source, confidence: cell.confidence, boxes: cell.boxes);
 
   Future<void> _refreshRecentScans() async {
     final recent = await ScanStore.instance.loadRecent();
     if (mounted) setState(() => recentScans = recent);
   }
-  void connectSheet() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Google Sheets connection will be available in a future update.')));
+  Future<void> _syncToDashboard({required VisionScanResult result, required String batchId, required int trayNumber}) async {
+    try {
+      await DashboardSyncService.instance.syncScan(batchId: batchId, trayNumber: trayNumber, result: result);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Scan synced to laptop dashboard.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Scan saved locally. Dashboard sync failed: $error')));
+    }
+  }
+
+  Future<void> connectDashboard() async {
+    if (connectingDashboard) return;
+    final details = await showDialog<(String, String)>(context: context, builder: (_) => const _DashboardConnectDialog());
+    if (details == null || !mounted) return;
+    setState(() => connectingDashboard = true);
+    try {
+      await DashboardSyncService.instance.connect(baseUrl: details.$1, sessionCode: details.$2);
+      if (mounted) setState(() => dashboardLinked = true);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not connect to laptop dashboard: $error')));
+    } finally {
+      if (mounted) setState(() => connectingDashboard = false);
+    }
+  }
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(sessionState: sessionState, sheetLinked: sheetLinked, linkedSheetName: linkedSheetName, connectingSheet: connectingSheet, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, recentScans: recentScans, onConnectSheet: connectSheet, onStartSession: startSession, onScan: openCapture, onEndSession: endSession)));
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(sessionState: sessionState, dashboardLinked: dashboardLinked, connectingDashboard: connectingDashboard, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, recentScans: recentScans, onConnectDashboard: connectDashboard, onStartSession: startSession, onScan: openCapture, onEndSession: endSession)));
+}
+
+class _DashboardConnectDialog extends StatefulWidget {
+  const _DashboardConnectDialog();
+
+  @override
+  State<_DashboardConnectDialog> createState() => _DashboardConnectDialogState();
+}
+
+class _DashboardConnectDialogState extends State<_DashboardConnectDialog> {
+  final addressController = TextEditingController(text: 'http://');
+  final codeController = TextEditingController();
+
+  @override
+  void dispose() {
+    addressController.dispose();
+    codeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Connect laptop dashboard'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: addressController, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Dashboard address', hintText: 'http://192.168.1.10:8000')),
+          TextField(controller: codeController, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Session code')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.of(context).pop((addressController.text, codeController.text)), child: const Text('Connect')),
+        ],
+      );
 }
 
 class HomePage extends StatelessWidget {
-  const HomePage({required this.sessionState, required this.sheetLinked, required this.linkedSheetName, required this.connectingSheet, required this.currentSessionDevices, required this.totalDevicesScanned, required this.recentScans, required this.onConnectSheet, required this.onStartSession, required this.onScan, required this.onEndSession, super.key});
+  const HomePage({required this.sessionState, required this.dashboardLinked, required this.connectingDashboard, required this.currentSessionDevices, required this.totalDevicesScanned, required this.recentScans, required this.onConnectDashboard, required this.onStartSession, required this.onScan, required this.onEndSession, super.key});
   final SessionState sessionState;
-  final bool sheetLinked;
-  final String? linkedSheetName;
-  final bool connectingSheet;
+  final bool dashboardLinked;
+  final bool connectingDashboard;
   final int currentSessionDevices;
   final int totalDevicesScanned;
   final List<StoredScanSummary> recentScans;
-  final VoidCallback onConnectSheet;
+  final VoidCallback onConnectDashboard;
   final VoidCallback onStartSession;
   final VoidCallback onScan;
   final VoidCallback onEndSession;
@@ -176,7 +232,7 @@ class HomePage extends StatelessWidget {
                     ]),
                     const SizedBox(height: 28),
                     Row(children: [
-                      Expanded(child: _InfoCard(title: 'Local Storage', child: Row(children: [const Icon(Icons.storage_outlined, color: Color(0xff23739a), size: 25), const SizedBox(width: 10), const Expanded(child: Text('Saved on this iPhone\nSQLite enabled', style: TextStyle(fontSize: 14, height: 1.15)))]))),
+                      Expanded(child: _InfoCard(title: 'Laptop Dashboard', child: InkWell(onTap: onConnectDashboard, borderRadius: BorderRadius.circular(8), child: Row(children: [Icon(dashboardLinked ? Icons.laptop_mac : Icons.link_off, color: dashboardLinked ? const Color(0xff23739a) : const Color(0xff606575), size: 25), const SizedBox(width: 10), Expanded(child: Text(connectingDashboard ? 'Connecting…' : dashboardLinked ? 'Dashboard connected' : 'Tap to connect', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, height: 1.15)))])))),
                       const SizedBox(width: 18),
                       Expanded(
                         child: _InfoCard(
@@ -459,8 +515,58 @@ class _ProcessingView extends StatelessWidget {
       ])));
 }
 
+class _ScanPreview extends StatelessWidget {
+  const _ScanPreview({required this.imagePath, required this.cells});
+  final String imagePath;
+  final List<DemoCell> cells;
+
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Scanned image', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(
+            height: 230,
+            width: double.infinity,
+            child: Stack(fit: StackFit.expand, children: [
+              Image.file(File(imagePath), fit: BoxFit.fill, errorBuilder: (_, __, ___) => const ColoredBox(color: Color(0xffeeeeee), child: Center(child: Text('Scanned image unavailable')))),
+              IgnorePointer(child: CustomPaint(painter: _DetectionBoxPainter(cells))),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text('Colored boxes mark barcode/OCR regions used for the results below.', style: TextStyle(fontSize: 12, color: Color(0xff606575))),
+      ]);
+}
+
+class _DetectionBoxPainter extends CustomPainter {
+  const _DetectionBoxPainter(this.cells);
+  final List<DemoCell> cells;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final cell in cells) {
+      final color = switch (cell.status) {
+        CellStatus.accepted => const Color(0xff25a55f),
+        CellStatus.review => const Color(0xffffb400),
+        CellStatus.retake => const Color(0xffef5a60),
+      };
+      final paint = Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 2.5;
+      for (final box in cell.boxes) {
+        final rect = Rect.fromLTWH(box.x * size.width, box.y * size.height, box.width * size.width, box.height * size.height);
+        canvas.drawRect(rect, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DetectionBoxPainter oldDelegate) => oldDelegate.cells != cells;
+}
+
 class ReviewPage extends StatefulWidget {
-  const ReviewPage({required this.trayNumber, required this.cells, required this.onCellsChanged, required this.onRescan, required this.onNextTray, super.key});
+  const ReviewPage({required this.imagePath, required this.trayNumber, required this.cells, required this.onCellsChanged, required this.onRescan, required this.onNextTray, super.key});
+  final String imagePath;
   final int trayNumber;
   final List<DemoCell> cells;
   final ValueChanged<List<DemoCell>> onCellsChanged;
@@ -479,6 +585,8 @@ class _ReviewPageState extends State<ReviewPage> {
     return Scaffold(
       appBar: AppBar(title: Text('Tray ${widget.trayNumber}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)), leading: const BackButton()),
       body: ListView(padding: const EdgeInsets.fromLTRB(22, 8, 22, 24), children: [
+        _ScanPreview(imagePath: widget.imagePath, cells: widget.cells),
+        const SizedBox(height: 18),
         ExpansionPanelList.radio(
           initialOpenPanelValue: widget.trayNumber,
           elevation: 0,
@@ -486,8 +594,6 @@ class _ReviewPageState extends State<ReviewPage> {
           dividerColor: const Color(0xffe3e3e3),
           children: [
             _trayPanel(widget.trayNumber, 'Tray ${widget.trayNumber}', widget.cells, accepted, unresolved, onRescan: widget.onRescan),
-            _trayPanel(1, 'Tray 1', widget.cells, accepted, unresolved),
-            _trayPanel(2, 'Tray 2', widget.cells, accepted, unresolved),
           ],
         ),
       ]),
@@ -500,11 +606,17 @@ class _ReviewPageState extends State<ReviewPage> {
         canTapOnHeader: true,
         headerBuilder: (_, isExpanded) => SizedBox(height: 68, child: Align(alignment: Alignment.centerLeft, child: Text(label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)))),
         body: Padding(padding: const EdgeInsets.only(bottom: 24), child: Column(children: [
-          GridView.count(crossAxisCount: 3, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisSpacing: 12, mainAxisSpacing: 14, childAspectRatio: 1.28, children: trayCells.map((cell) => _HiFiReviewCell(cell: cell, onTap: () => _showCellDetails(context, cell))).toList()),
+          GridView.count(crossAxisCount: _gridColumns(trayCells), shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisSpacing: 12, mainAxisSpacing: 14, childAspectRatio: 1.28, children: trayCells.map((cell) => _HiFiReviewCell(cell: cell, onTap: () => _showCellDetails(context, cell))).toList()),
           const SizedBox(height: 18),
           Row(children: [Expanded(child: _ReviewSummary(label: 'Successful', value: '$accepted', color: const Color(0xffdff0df))), const SizedBox(width: 10), Expanded(child: _ReviewSummary(label: 'Error', value: '$unresolved', color: const Color(0xfffff2c8))), const SizedBox(width: 12), SizedBox(width: 112, height: 48, child: FilledButton(onPressed: onRescan, style: FilledButton.styleFrom(backgroundColor: const Color(0xffef5a60), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Re-scan', style: TextStyle(fontWeight: FontWeight.w700))))]),
         ])),
       );
+
+  int _gridColumns(List<DemoCell> trayCells) {
+    final columns = trayCells.map((cell) => RegExp(r'C(\d+)$').firstMatch(cell.position)?.group(1)).whereType<String>().map(int.parse).fold<int>(0, (max, value) => value > max ? value : max);
+    if (columns > 0) return columns.clamp(1, 5);
+    return trayCells.length.clamp(1, 4);
+  }
 
   static void _noop() {}
 

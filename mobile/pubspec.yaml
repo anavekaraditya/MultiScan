@@ -1,5 +1,5 @@
 name: multiscan_mobile
-description: High-accuracy 3x5 tray IMEI scanner.
+description: Flexible multi-device tray IMEI scanner.
 publish_to: "none"
 version: 0.1.0+1
 environment:
@@ -13,6 +13,7 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
   sqflite: ^2.4.1
+  http: ^1.6.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

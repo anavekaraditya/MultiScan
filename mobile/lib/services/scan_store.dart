@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
@@ -29,7 +30,7 @@ class ScanStore {
   Future<Database> get database async {
     if (_database != null) return _database!;
     final databasePath = path.join(await getDatabasesPath(), 'multiscan.sqlite');
-    _database = await openDatabase(databasePath, version: 1, onCreate: (db, _) async {
+    _database = await openDatabase(databasePath, version: 2, onCreate: (db, _) async {
       await db.execute('''CREATE TABLE scan_batches(
         id TEXT PRIMARY KEY,
         tray_number INTEGER NOT NULL,
@@ -46,9 +47,12 @@ class ScanStore {
         source TEXT NOT NULL,
         confidence REAL NOT NULL,
         reason TEXT NOT NULL,
+        boxes_json TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY(scan_id, position),
         FOREIGN KEY(scan_id) REFERENCES scan_batches(id) ON DELETE CASCADE
       )''');
+    }, onUpgrade: (db, oldVersion, newVersion) async {
+      if (oldVersion < 2) await db.execute("ALTER TABLE scan_cells ADD COLUMN boxes_json TEXT NOT NULL DEFAULT '[]'");
     });
     return _database!;
   }
@@ -62,7 +66,7 @@ class ScanStore {
         'tray_number': trayNumber,
         'image_path': storedImagePath,
         'created_at': DateTime.now().toUtc().toIso8601String(),
-        'layout_version': '3x5-v1',
+        'layout_version': 'dynamic-layout-v1',
         'processing_version': result.processingVersion,
       });
       for (final cell in result.cells) {
@@ -74,6 +78,7 @@ class ScanStore {
           'source': cell.source,
           'confidence': cell.confidence,
           'reason': cell.reason,
+          'boxes_json': jsonEncode(cell.boxes.map((box) => {'x': box.x, 'y': box.y, 'width': box.width, 'height': box.height}).toList()),
         });
       }
     });
@@ -109,6 +114,7 @@ class ScanStore {
           source: row['source'] as String,
           confidence: (row['confidence'] as num).toDouble(),
           reason: row['reason'] as String,
+          boxes: ((jsonDecode(row['boxes_json'] as String? ?? '[]') as List<Object?>).whereType<Map<String, dynamic>>()).map((box) => VisionBox.fromMap(Map<Object?, Object?>.from(box))).toList(growable: false),
         )).toList();
     return StoredScan(trayNumber: batch['tray_number'] as int, imagePath: batch['image_path'] as String, cells: cells);
   }

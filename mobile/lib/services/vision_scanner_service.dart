@@ -2,8 +2,23 @@ import 'package:flutter/services.dart';
 
 enum VisionCellStatus { accepted, review, retake }
 
+class VisionBox {
+  const VisionBox({required this.x, required this.y, required this.width, required this.height});
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  factory VisionBox.fromMap(Map<Object?, Object?> map) => VisionBox(
+        x: (map['x'] as num?)?.toDouble() ?? 0,
+        y: (map['y'] as num?)?.toDouble() ?? 0,
+        width: (map['width'] as num?)?.toDouble() ?? 0,
+        height: (map['height'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 class VisionCellResult {
-  const VisionCellResult({required this.position, required this.status, required this.reason, required this.source, required this.confidence, this.imei});
+  const VisionCellResult({required this.position, required this.status, required this.reason, required this.source, required this.confidence, this.imei, this.boxes = const []});
 
   final String position;
   final String? imei;
@@ -11,6 +26,7 @@ class VisionCellResult {
   final String source;
   final double confidence;
   final String reason;
+  final List<VisionBox> boxes;
 
   factory VisionCellResult.fromMap(Map<Object?, Object?> map) => VisionCellResult(
         position: map['position'] as String,
@@ -23,6 +39,7 @@ class VisionCellResult {
         source: map['source'] as String? ?? 'none',
         confidence: (map['confidence'] as num?)?.toDouble() ?? 0,
         reason: map['reason'] as String? ?? 'No readable IMEI',
+        boxes: (map['boxes'] as List<Object?>? ?? const <Object?>[]).whereType<Map<Object?, Object?>>().map(VisionBox.fromMap).toList(growable: false),
       );
 }
 
