@@ -66,8 +66,8 @@
           <label>Sheet layout <select id="documentLayout"><option value="auto">Auto</option><option value="64x4x16">64 · 4×16</option><option value="64x8x8">64 · 8×8</option><option value="128x4x32">128 · 4×32</option><option value="128x8x16">128 · 8×16</option><option value="custom">Custom</option></select></label>
           <label>Rows <input id="documentRows" type="number" min="1" step="1" placeholder="Auto" /></label>
           <label>Columns <input id="documentColumns" type="number" min="1" step="1" placeholder="Auto" /></label>
-          <label><input id="documentOcr" type="checkbox" checked /> OCR verification (slower)</label>
-          <div class="spacer"></div><button class="secondary" id="copyDocumentButton" disabled onclick="copyDocumentCodes()">Copy detected</button><button id="documentAppend" disabled onclick="appendDocumentResults()">Append accepted</button>
+          <label><input id="documentOcr" type="checkbox" /> Use OCR</label>
+          <div class="spacer"></div><button class="secondary" id="processDocumentButton" disabled onclick="processDocument(documentFile)">Process sheet</button><button class="secondary" id="copyDocumentButton" disabled onclick="copyDocumentCodes()">Copy detected</button><button id="documentAppend" disabled onclick="appendDocumentResults()">Append accepted</button>
         </div>
         <div class="document-grid">
           <div class="preview-wrap"><div class="preview-stage"><img id="documentPreview" alt="Uploaded barcode sheet preview" /><div id="documentBoxes" class="box-layer"></div></div></div>
@@ -177,6 +177,8 @@ function inferredLayout(groups) {
 }
 async function processDocument(file) {
   if (documentBusy) return;
+  if (!file) { setDocumentStatus('Choose an image first.', 'error'); return; }
+  if (!document.getElementById('documentOcr').checked) { setDocumentStatus('Check “Use OCR” before processing the sheet.', 'error'); return; }
   documentFile = file;
   documentBusy = true;
   documentRun = null;
@@ -214,13 +216,17 @@ async function processDocument(file) {
       const barcodeGroups = deduplicateObservations(observations);
       documentRun = {fileName: file.name, source, observations, barcodeGroups, ocrValues: [], results: [], appended: false};
       setDocumentStatus('Barcode pass complete. Checking independent evidence…');
-      if (document.getElementById('documentOcr').checked) {
+      const configuredGrid = requestedGrid();
+      const expectedBarcodeCount = configuredGrid ? configuredGrid.rows * configuredGrid.cols : 0;
+      const barcodePassComplete = expectedBarcodeCount > 0 && documentRun.barcodeGroups.length >= expectedBarcodeCount;
+      if (document.getElementById('documentOcr').checked && !barcodePassComplete) {
         await runDocumentOcr(source);
         for (const observation of documentRun.ocrObservations || []) {
           if (documentRun.barcodeGroups.some(group => group.value === observation.value)) continue;
           documentRun.barcodeGroups.push({value: observation.value, box: observation.box, observations: []});
         }
       }
+      if (barcodePassComplete) setDocumentStatus('Barcode pass complete. All expected slots were found; OCR recovery was skipped.');
       if (documentRun.barcodeGroups.length === 0) {
         setDocumentStatus('No valid 15-digit barcode or OCR candidates were found. Try a higher-resolution scan with more white space around each barcode.', 'error');
         documentRun.results = [];
@@ -247,10 +253,10 @@ function renderDocumentState() { if (!documentRun) return; const results = docum
 async function appendDocumentResults() { if (!documentRun || !sessionCode || state?.ended) return; const accepted = documentRun.results.filter(item => item.status === 'accepted'); if (!accepted.length) return; const trayNumber = Math.max(1, Number(document.getElementById('documentTrayNumber').value) || 1); const batchId = 'document-' + Date.now() + '-' + (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)); const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode) + '/batches', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({batch_id: batchId, tray_number: trayNumber, cells: documentRun.results.map(item => ({position: item.position, imei: item.value, status: item.status, source: item.source, confidence: item.confidence, reason: item.reason}))})}); if (!response.ok) { let detail = 'The accepted results could not be appended.'; try { const body = await response.json(); detail = body.detail || detail; } catch (_) {} setDocumentStatus(detail, 'error'); return; } documentRun.appended = true; await refresh(); setDocumentStatus('Accepted document results appended to Tray ' + trayNumber + '.', 'success'); }
 async function copyDocumentCodes() { if (!documentRun) return; const values = documentRun.results.filter(item => item.status === 'accepted').map(item => item.value).join('\n'); await navigator.clipboard.writeText(values); }
 function reprocessWithLayout() { if (documentFile && !documentBusy) processDocument(documentFile); }
-document.getElementById('documentInput').addEventListener('change', event => { const file = event.target.files?.[0]; if (file) { const suggestedTray = (state?.batches?.length || 0) + 1; document.getElementById('documentTrayNumber').value = suggestedTray; processDocument(file); } });
-document.getElementById('documentLayout').addEventListener('change', event => { const presets = { '64x4x16': {rows: 16, cols: 4}, '64x8x8': {rows: 8, cols: 8}, '128x4x32': {rows: 32, cols: 4}, '128x8x16': {rows: 16, cols: 8} }; const preset = presets[event.target.value]; if (preset) { document.getElementById('documentRows').value = preset.rows; document.getElementById('documentColumns').value = preset.cols; } else if (event.target.value === 'auto') { document.getElementById('documentRows').value = ''; document.getElementById('documentColumns').value = ''; } reprocessWithLayout(); });
-document.getElementById('documentRows').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; reprocessWithLayout(); });
-document.getElementById('documentColumns').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; reprocessWithLayout(); });
+document.getElementById('documentInput').addEventListener('change', event => { const file = event.target.files?.[0]; if (file) { documentFile = file; const suggestedTray = (state?.batches?.length || 0) + 1; document.getElementById('documentTrayNumber').value = suggestedTray; document.getElementById('documentPreview').src = URL.createObjectURL(file); document.getElementById('documentPanel').classList.remove('hidden'); document.getElementById('processDocumentButton').disabled = false; setDocumentStatus('Image ready. Choose the layout, check OCR, then tap Process sheet.'); } });
+document.getElementById('documentLayout').addEventListener('change', event => { const presets = { '64x4x16': {rows: 16, cols: 4}, '64x8x8': {rows: 8, cols: 8}, '128x4x32': {rows: 32, cols: 4}, '128x8x16': {rows: 16, cols: 8} }; const preset = presets[event.target.value]; if (preset) { document.getElementById('documentRows').value = preset.rows; document.getElementById('documentColumns').value = preset.cols; } else if (event.target.value === 'auto') { document.getElementById('documentRows').value = ''; document.getElementById('documentColumns').value = ''; } });
+document.getElementById('documentRows').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; });
+document.getElementById('documentColumns').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; });
 if (sessionCode) { showSession(); refresh().then(startPolling); }
 </script>
 </body>
