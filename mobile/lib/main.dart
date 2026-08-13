@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'services/scan_store.dart';
@@ -12,8 +13,6 @@ import 'services/vision_scanner_service.dart';
 void main() => runApp(const MultiScanApp());
 
 enum CellStatus { accepted, retake, review }
-
-enum SessionState { idle, active }
 
 class DemoCell {
   const DemoCell(this.position, this.status, this.imei, this.reason, {this.source = 'none', this.confidence = 0, this.boxes = const []});
@@ -64,11 +63,10 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  SessionState sessionState = SessionState.idle;
   bool dashboardLinked = false;
   bool connectingDashboard = false;
   int currentSessionDevices = 0;
-  int totalDevicesScanned = 10000;
+  int totalDevicesScanned = 0;
   int activeTrayNumber = 3;
   List<DemoCell> cells = buildDemoCells();
   List<StoredScanSummary> recentScans = const [];
@@ -83,7 +81,8 @@ class _AppShellState extends State<AppShell> {
     try {
       final stored = await ScanStore.instance.loadLatest();
       final recent = await ScanStore.instance.loadRecent();
-      if (mounted) setState(() => recentScans = recent);
+      final total = await ScanStore.instance.loadTotalAccepted();
+      if (mounted) setState(() { recentScans = recent; totalDevicesScanned = total; });
       if (!mounted || stored == null || stored.cells.isEmpty) return;
       setState(() {
         activeTrayNumber = stored.trayNumber;
@@ -95,10 +94,7 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  void startSession() => setState(() { sessionState = SessionState.active; currentSessionDevices = 0; });
-  void endSession() => setState(() { sessionState = SessionState.idle; currentSessionDevices = 0; });
   void openCapture({bool replaceCurrent = false, bool nextTray = false}) {
-    if (sessionState != SessionState.active) return;
     final scanTrayNumber = activeTrayNumber + (nextTray ? 1 : 0);
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => CapturePage(onProcessed: (result) => openReview(result, trayNumber: scanTrayNumber, replaceCurrent: replaceCurrent))));
   }
@@ -107,11 +103,26 @@ class _AppShellState extends State<AppShell> {
     final scanId = DateTime.now().microsecondsSinceEpoch.toString();
     unawaited(ScanStore.instance.saveScan(scanId: scanId, trayNumber: trayNumber, result: result));
     unawaited(_refreshRecentScans());
-    setState(() { cells = scannedCells; activeTrayNumber = trayNumber; currentSessionDevices += scannedCells.where((cell) => cell.status == CellStatus.accepted).length; });
+    final acceptedCount = scannedCells.where((cell) => cell.status == CellStatus.accepted).length;
+    setState(() { cells = scannedCells; activeTrayNumber = trayNumber; currentSessionDevices += acceptedCount; totalDevicesScanned += acceptedCount; });
+    HapticFeedback.heavyImpact();
+    final unresolvedCount = scannedCells.length - acceptedCount;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(children: [
+          Icon(unresolvedCount == 0 ? Icons.verified_rounded : Icons.fact_check_outlined, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(child: Text(unresolvedCount == 0 ? '$acceptedCount devices verified.' : '$acceptedCount verified · $unresolvedCount need review.')),
+        ]),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ));
+    });
     if (dashboardLinked) unawaited(_syncToDashboard(result: result, batchId: scanId, trayNumber: trayNumber));
     final navigator = Navigator.of(context);
     if (replaceCurrent) navigator.pop();
-    navigator.push(MaterialPageRoute(builder: (_) => ReviewPage(imagePath: result.imagePath, trayNumber: trayNumber, cells: cells, onCellsChanged: (value) => setState(() => cells = value), onRescan: () => openCapture(replaceCurrent: true), onNextTray: () => openCapture(nextTray: true))));
+    navigator.push(MaterialPageRoute(builder: (_) => ReviewPage(imagePath: result.imagePath, trayNumber: trayNumber, cells: cells, rawBarcodeCount: result.rawBarcodeCount, uniqueBarcodeCount: result.uniqueBarcodeCount, onCellsChanged: (value) => setState(() => cells = value), onRescan: () => openCapture(replaceCurrent: true), onNextTray: () => openCapture(nextTray: true))));
   }
 
   DemoCell _toDemoCell(VisionCellResult cell) => DemoCell(cell.position, switch (cell.status) {
@@ -135,11 +146,11 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> connectDashboard() async {
     if (connectingDashboard) return;
-    final details = await showDialog<(String, String)>(context: context, builder: (_) => const _DashboardConnectDialog());
-    if (details == null || !mounted) return;
+    final sessionCode = await showDialog<String>(context: context, builder: (_) => const _DashboardConnectDialog());
+    if (sessionCode == null || !mounted) return;
     setState(() => connectingDashboard = true);
     try {
-      await DashboardSyncService.instance.connect(baseUrl: details.$1, sessionCode: details.$2);
+      await DashboardSyncService.instance.connect(sessionCode: sessionCode);
       if (mounted) setState(() => dashboardLinked = true);
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not connect to laptop dashboard: $error')));
@@ -148,7 +159,7 @@ class _AppShellState extends State<AppShell> {
     }
   }
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(sessionState: sessionState, dashboardLinked: dashboardLinked, connectingDashboard: connectingDashboard, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, recentScans: recentScans, onConnectDashboard: connectDashboard, onStartSession: startSession, onScan: openCapture, onEndSession: endSession)));
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: HomePage(dashboardLinked: dashboardLinked, connectingDashboard: connectingDashboard, currentSessionDevices: currentSessionDevices, totalDevicesScanned: totalDevicesScanned, recentScans: recentScans, onConnectDashboard: connectDashboard, onScan: openCapture)));
 }
 
 class _DashboardConnectDialog extends StatefulWidget {
@@ -159,12 +170,10 @@ class _DashboardConnectDialog extends StatefulWidget {
 }
 
 class _DashboardConnectDialogState extends State<_DashboardConnectDialog> {
-  final addressController = TextEditingController(text: 'http://');
   final codeController = TextEditingController();
 
   @override
   void dispose() {
-    addressController.dispose();
     codeController.dispose();
     super.dispose();
   }
@@ -173,28 +182,26 @@ class _DashboardConnectDialogState extends State<_DashboardConnectDialog> {
   Widget build(BuildContext context) => AlertDialog(
         title: const Text('Connect laptop dashboard'),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: addressController, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Dashboard address', hintText: 'http://192.168.1.10:8000')),
-          TextField(controller: codeController, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Session code')),
+          const Text('Enter the code shown on the laptop dashboard.', style: TextStyle(color: Color(0xff505565))),
+          const SizedBox(height: 14),
+          TextField(controller: codeController, autofocus: true, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Session code', hintText: 'ABC123')),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(context).pop((addressController.text, codeController.text)), child: const Text('Connect')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(codeController.text), child: const Text('Connect')),
         ],
       );
 }
 
 class HomePage extends StatelessWidget {
-  const HomePage({required this.sessionState, required this.dashboardLinked, required this.connectingDashboard, required this.currentSessionDevices, required this.totalDevicesScanned, required this.recentScans, required this.onConnectDashboard, required this.onStartSession, required this.onScan, required this.onEndSession, super.key});
-  final SessionState sessionState;
+  const HomePage({required this.dashboardLinked, required this.connectingDashboard, required this.currentSessionDevices, required this.totalDevicesScanned, required this.recentScans, required this.onConnectDashboard, required this.onScan, super.key});
   final bool dashboardLinked;
   final bool connectingDashboard;
   final int currentSessionDevices;
   final int totalDevicesScanned;
   final List<StoredScanSummary> recentScans;
   final VoidCallback onConnectDashboard;
-  final VoidCallback onStartSession;
   final VoidCallback onScan;
-  final VoidCallback onEndSession;
   @override
   Widget build(BuildContext context) => Column(
         children: [
@@ -209,12 +216,17 @@ class HomePage extends StatelessWidget {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Text('Hi Deepali,', style: TextStyle(fontSize: 17, color: Colors.black54)),
                     const SizedBox(height: 6),
-                    Text(sessionState == SessionState.active ? 'Session in progress' : 'Ready to scan?', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+                    const Text('Ready to scan?', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
                     const Spacer(),
                     Center(child: Column(children: [
                       const Text('Devices Scanned', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
-                      Text('$currentSessionDevices', style: const TextStyle(fontSize: 58, fontWeight: FontWeight.w500)),
+                      TweenAnimationBuilder<int>(
+                        tween: IntTween(begin: 0, end: currentSessionDevices),
+                        duration: const Duration(milliseconds: 520),
+                        curve: Curves.easeOutCubic,
+                        builder: (_, value, __) => Text('$value', style: const TextStyle(fontSize: 58, fontWeight: FontWeight.w500)),
+                      ),
                     ])),
                     const SizedBox(height: 14),
                   ]),
@@ -223,13 +235,16 @@ class HomePage extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(22, 0, 22, 0),
                   child: Column(children: [
-                    Row(children: [
-                      Expanded(child: _LargeAction(label: 'Start', icon: Icons.add, color: const Color(0xff80c900), enabled: sessionState == SessionState.idle, onPressed: onStartSession)),
-                      const SizedBox(width: 14),
-                      _ScanAction(enabled: sessionState == SessionState.active, onPressed: onScan),
-                      const SizedBox(width: 14),
-                      Expanded(child: _LargeAction(label: 'End', icon: Icons.close, color: const Color(0xffef5a60), enabled: sessionState == SessionState.active, onPressed: onEndSession)),
-                    ]),
+                    Center(
+                      child: FilledButton.icon(
+                        onPressed: onScan,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                          child: Text('Scan tray', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 28),
                     Row(children: [
                       Expanded(child: _InfoCard(title: 'Laptop Dashboard', child: InkWell(onTap: onConnectDashboard, borderRadius: BorderRadius.circular(8), child: Row(children: [Icon(dashboardLinked ? Icons.laptop_mac : Icons.link_off, color: dashboardLinked ? const Color(0xff23739a) : const Color(0xff606575), size: 25), const SizedBox(width: 10), Expanded(child: Text(connectingDashboard ? 'Connecting…' : dashboardLinked ? 'Dashboard connected' : 'Tap to connect', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, height: 1.15)))])))),
@@ -263,28 +278,25 @@ class HomePage extends StatelessWidget {
 String _shortDate(DateTime date) => '${date.day} ${_monthName(date.month)}';
 String _monthName(int month) => const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][month - 1];
 
-class _LargeAction extends StatelessWidget { const _LargeAction({required this.label, required this.icon, required this.color, required this.enabled, required this.onPressed}); final String label; final IconData icon; final Color color; final bool enabled; final VoidCallback onPressed; @override Widget build(BuildContext context) => SizedBox(height: 72, child: FilledButton(onPressed: enabled ? onPressed : null, style: FilledButton.styleFrom(backgroundColor: color, disabledBackgroundColor: const Color(0xffeeeeee), foregroundColor: Colors.white, disabledForegroundColor: Colors.black26, minimumSize: Size.zero, padding: const EdgeInsets.symmetric(horizontal: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13))), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Flexible(child: FittedBox(fit: BoxFit.scaleDown, child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)))), const SizedBox(width: 8), Icon(icon, size: 24)]))); }
-class _ScanAction extends StatelessWidget { const _ScanAction({required this.enabled, required this.onPressed}); final bool enabled; final VoidCallback onPressed; @override Widget build(BuildContext context) => SizedBox(width: 72, height: 72, child: FilledButton(onPressed: enabled ? onPressed : null, style: FilledButton.styleFrom(backgroundColor: const Color(0xffeeeeee), disabledBackgroundColor: const Color(0xfff5f5f5), foregroundColor: Colors.black, disabledForegroundColor: Colors.black26, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)), padding: EdgeInsets.zero), child: const Icon(Icons.qr_code_scanner, size: 38))); }
 class _InfoCard extends StatelessWidget { const _InfoCard({required this.title, required this.child}); final String title; final Widget child; @override Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)), const SizedBox(height: 10), Container(width: double.infinity, height: 76, padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: const Color(0xffe7f3f6), borderRadius: BorderRadius.circular(8)), child: child)]); }
 class _ActivityRow extends StatelessWidget { const _ActivityRow({required this.date, required this.session, required this.devices}); final String date; final String session; final String devices; @override Widget build(BuildContext context) => Container(margin: const EdgeInsets.only(bottom: 7), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9), decoration: BoxDecoration(color: const Color(0xfffbfbfb), borderRadius: BorderRadius.circular(10), boxShadow: const [BoxShadow(color: Color(0x0c000000), blurRadius: 4, offset: Offset(0, 2))]), child: Row(children: [Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9), decoration: BoxDecoration(color: const Color(0xffe2f0f5), borderRadius: BorderRadius.circular(9)), child: Text(date, style: const TextStyle(color: Color(0xff27759c), fontSize: 13))), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(session, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)), const Text('12:25 PM', style: TextStyle(fontSize: 11))])), Flexible(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerRight, child: Text(devices, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700))))])); }
-class _BottomActions extends StatelessWidget {
-  const _BottomActions({required this.sessionState, required this.onStart, required this.onScan, required this.onEnd});
-  final SessionState sessionState;
-  final VoidCallback onStart;
-  final VoidCallback onScan;
-  final VoidCallback onEnd;
+class _ReviewBottomAction extends StatelessWidget {
+  const _ReviewBottomAction({required this.onNextTray});
+  final VoidCallback onNextTray;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
-        child: Row(
-          children: [
-            Expanded(child: _LargeAction(label: 'Start', icon: Icons.add, color: const Color(0xff80c900), enabled: sessionState == SessionState.idle, onPressed: onStart)),
-            const SizedBox(width: 12),
-            _ScanAction(enabled: sessionState == SessionState.active, onPressed: onScan),
-            const SizedBox(width: 12),
-            Expanded(child: _LargeAction(label: 'End', icon: Icons.close, color: const Color(0xffef5a60), enabled: sessionState == SessionState.active, onPressed: onEnd)),
-          ],
+  Widget build(BuildContext context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+          child: SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton.icon(
+              onPressed: onNextTray,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan next tray', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            ),
+          ),
         ),
       );
 }
@@ -303,31 +315,6 @@ class _HistoryRow extends StatelessWidget {
   final String devices;
   @override
   Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 20), child: Row(children: [Expanded(child: Text(date, style: const TextStyle(fontSize: 14))), Text(devices, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))]));
-}
-
-class _ActionBar extends StatelessWidget {
-  const _ActionBar({required this.sessionState, required this.onStartSession, required this.onScan, required this.onEndSession});
-  final SessionState sessionState;
-  final VoidCallback onStartSession;
-  final VoidCallback onScan;
-  final VoidCallback onEndSession;
-  @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.fromLTRB(22, 10, 22, 18), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        _ActionButton(icon: Icons.add_box_outlined, label: 'New\nSession', enabled: sessionState == SessionState.idle, onPressed: onStartSession),
-        _ActionButton(icon: Icons.qr_code_scanner, label: 'Scan', enabled: sessionState == SessionState.active, onPressed: onScan, emphasized: true),
-        _ActionButton(icon: Icons.close, label: 'End\nSession', enabled: sessionState == SessionState.active, onPressed: onEndSession),
-      ]));
-}
-
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.icon, required this.label, required this.enabled, required this.onPressed, this.emphasized = false});
-  final IconData icon;
-  final String label;
-  final bool enabled;
-  final VoidCallback onPressed;
-  final bool emphasized;
-  @override
-  Widget build(BuildContext context) => SizedBox(width: 106, height: 84, child: FilledButton.tonal(onPressed: enabled ? onPressed : null, style: FilledButton.styleFrom(backgroundColor: emphasized && enabled ? Colors.black : const Color(0xffeeeeee), foregroundColor: emphasized && enabled ? Colors.white : Colors.black, disabledBackgroundColor: const Color(0xfff5f5f5), disabledForegroundColor: const Color(0xffb5b5b5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), padding: const EdgeInsets.symmetric(vertical: 10)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, size: 25), const SizedBox(height: 4), Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, height: 1.05, fontWeight: FontWeight.w600))])));
 }
 
 class CapturePage extends StatefulWidget {
@@ -357,7 +344,10 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw CameraException('NoCamera', 'No camera is available on this device.');
       final backCamera = cameras.firstWhere((camera) => camera.lensDirection == CameraLensDirection.back, orElse: () => cameras.first);
-      final nextController = CameraController(backCamera, ResolutionPreset.high, enableAudio: false, imageFormatGroup: ImageFormatGroup.jpeg);
+      // Dense barcode sheets need as much still-image detail as the device can
+      // provide. Vision performs better on the captured photo than on a live
+      // preview, so use the highest practical camera preset here.
+      final nextController = CameraController(backCamera, ResolutionPreset.veryHigh, enableAudio: false, imageFormatGroup: ImageFormatGroup.jpeg);
       await nextController.initialize();
       if (!mounted) {
         await nextController.dispose();
@@ -429,20 +419,61 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Capture tray'), leading: const BackButton()),
-        body: processing ? const _ProcessingView() : Column(children: [
-          Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(20, 16, 20, 12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Fit the tray or device inside the frame', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            const Text('Keep all four tray edges visible. Hold steady and avoid glare on the labels.', style: TextStyle(color: Color(0xff505565), height: 1.35)),
-            const SizedBox(height: 20),
-            Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(24), child: _CameraPreview(controller: controller, error: cameraError))),
-          ]))),
-          Padding(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), child: Row(children: [
-            Expanded(child: FilledButton.icon(onPressed: controller?.value.isInitialized == true ? capture : null, icon: const Icon(Icons.camera_alt_outlined), label: const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Text('Take photo')))),
-            const SizedBox(width: 12),
-            Expanded(child: OutlinedButton.icon(onPressed: choosePhoto, icon: const Icon(Icons.photo_library_outlined), label: const Padding(padding: EdgeInsets.symmetric(vertical: 15), child: Text('Choose photo')))),
-          ])),
+        backgroundColor: const Color(0xff101820),
+        body: processing
+            ? const _ProcessingView()
+            : Stack(fit: StackFit.expand, children: [
+                _CameraPreview(controller: controller, error: cameraError),
+                const Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: Padding(padding: EdgeInsets.fromLTRB(22, 12, 22, 0), child: Text('Fit the tray or device inside the guide', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 5)]))))),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 0,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 18),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                        _CaptureIconButton(icon: Icons.arrow_back_rounded, label: 'Back', onPressed: () => Navigator.of(context).pop()),
+                        _ShutterButton(enabled: controller?.value.isInitialized == true, onPressed: capture),
+                        _CaptureIconButton(icon: Icons.photo_library_outlined, label: 'Library', onPressed: choosePhoto),
+                      ]),
+                    ),
+                  ),
+                ),
+              ]),
+      );
+}
+
+class _ShutterButton extends StatelessWidget {
+  const _ShutterButton({required this.enabled, required this.onPressed});
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 86,
+        height: 86,
+        child: FilledButton(
+          onPressed: enabled ? onPressed : null,
+          style: FilledButton.styleFrom(backgroundColor: Colors.white, disabledBackgroundColor: Colors.white54, foregroundColor: const Color(0xff101820), padding: EdgeInsets.zero, shape: const CircleBorder(), side: const BorderSide(color: Colors.white, width: 4)),
+          child: const Icon(Icons.camera_alt_rounded, size: 34),
+        ),
+      );
+}
+
+class _CaptureIconButton extends StatelessWidget {
+  const _CaptureIconButton({required this.icon, required this.label, required this.onPressed});
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 76,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          IconButton.filledTonal(onPressed: onPressed, icon: Icon(icon, size: 25), style: IconButton.styleFrom(backgroundColor: Colors.black54, foregroundColor: Colors.white, minimumSize: const Size(52, 52), padding: EdgeInsets.zero)),
+          const SizedBox(height: 4),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600, shadows: [Shadow(blurRadius: 4)])),
         ]),
       );
 }
@@ -460,7 +491,6 @@ class _CameraPreview extends StatelessWidget {
     return Stack(fit: StackFit.expand, children: [
       CameraPreview(activeController),
       IgnorePointer(child: CustomPaint(painter: _TrayGuidePainter())),
-      const Positioned(left: 16, right: 16, bottom: 16, child: Text('Fit the tray or device inside the guide', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 4)]))),
     ]);
   }
 }
@@ -502,17 +532,73 @@ class _TrayGuidePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _ProcessingView extends StatelessWidget {
+class _ProcessingView extends StatefulWidget {
   const _ProcessingView();
 
   @override
-  Widget build(BuildContext context) => Center(child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const CircularProgressIndicator(),
-        const SizedBox(height: 24),
-        const Text('Finding barcodes and IMEIs', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 8),
-        const Text('Checking barcode and printed IMEI evidence. This usually takes a few seconds.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xff505565), height: 1.35)),
-      ])));
+  State<_ProcessingView> createState() => _ProcessingViewState();
+}
+
+class _ProcessingViewState extends State<_ProcessingView> with SingleTickerProviderStateMixin {
+  late final AnimationController _scanController;
+  Timer? _messageTimer;
+  int _messageIndex = 0;
+
+  static const _messages = [
+    'Finding every barcode in the image',
+    'Checking close-up regions for missed labels',
+    'Comparing barcode and printed IMEI evidence',
+    'Validating the final candidates',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _scanController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
+    _messageTimer = Timer.periodic(const Duration(milliseconds: 1450), (_) {
+      if (mounted) setState(() => _messageIndex = (_messageIndex + 1) % _messages.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _messageTimer?.cancel();
+    _scanController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            AnimatedBuilder(
+              animation: _scanController,
+              builder: (_, __) => Container(
+                width: 188,
+                height: 188,
+                decoration: BoxDecoration(color: const Color(0xffeef7fa), borderRadius: BorderRadius.circular(28)),
+                child: Stack(alignment: Alignment.center, children: [
+                  const Icon(Icons.document_scanner_outlined, size: 76, color: Color(0xff2d679d)),
+                  Positioned(
+                    top: 22 + (_scanController.value * 128),
+                    left: 22,
+                    right: 22,
+                    child: Container(height: 3, decoration: BoxDecoration(color: const Color(0xff80c900), borderRadius: BorderRadius.circular(4), boxShadow: const [BoxShadow(color: Color(0x5580c900), blurRadius: 8)])),
+                  ),
+                ]),
+              ),
+            ),
+            const SizedBox(height: 26),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: Text(_messages[_messageIndex], key: ValueKey(_messageIndex), textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(height: 10),
+            const Text('This may take a few seconds while each region is checked.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xff505565), height: 1.35)),
+          ]),
+        ),
+      );
 }
 
 class _ScanPreview extends StatelessWidget {
@@ -565,10 +651,12 @@ class _DetectionBoxPainter extends CustomPainter {
 }
 
 class ReviewPage extends StatefulWidget {
-  const ReviewPage({required this.imagePath, required this.trayNumber, required this.cells, required this.onCellsChanged, required this.onRescan, required this.onNextTray, super.key});
+  const ReviewPage({required this.imagePath, required this.trayNumber, required this.cells, required this.rawBarcodeCount, required this.uniqueBarcodeCount, required this.onCellsChanged, required this.onRescan, required this.onNextTray, super.key});
   final String imagePath;
   final int trayNumber;
   final List<DemoCell> cells;
+  final int rawBarcodeCount;
+  final int uniqueBarcodeCount;
   final ValueChanged<List<DemoCell>> onCellsChanged;
   final VoidCallback onRescan;
   final VoidCallback onNextTray;
@@ -586,6 +674,8 @@ class _ReviewPageState extends State<ReviewPage> {
       appBar: AppBar(title: Text('Tray ${widget.trayNumber}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)), leading: const BackButton()),
       body: ListView(padding: const EdgeInsets.fromLTRB(22, 8, 22, 24), children: [
         _ScanPreview(imagePath: widget.imagePath, cells: widget.cells),
+        const SizedBox(height: 8),
+        Text('Vision found ${widget.uniqueBarcodeCount} unique barcode${widget.uniqueBarcodeCount == 1 ? '' : 's'} across ${widget.rawBarcodeCount} scan passes.', style: const TextStyle(fontSize: 12, color: Color(0xff606575))),
         const SizedBox(height: 18),
         ExpansionPanelList.radio(
           initialOpenPanelValue: widget.trayNumber,
@@ -597,7 +687,7 @@ class _ReviewPageState extends State<ReviewPage> {
           ],
         ),
       ]),
-      bottomNavigationBar: SafeArea(child: _BottomActions(sessionState: SessionState.active, onStart: _noop, onScan: widget.onNextTray, onEnd: () => Navigator.of(context).pop())),
+      bottomNavigationBar: _ReviewBottomAction(onNextTray: widget.onNextTray),
     );
   }
 
@@ -617,8 +707,6 @@ class _ReviewPageState extends State<ReviewPage> {
     if (columns > 0) return columns.clamp(1, 5);
     return trayCells.length.clamp(1, 4);
   }
-
-  static void _noop() {}
 
   void _showCellDetails(BuildContext context, DemoCell cell) => showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (_) => Padding(padding: const EdgeInsets.fromLTRB(20, 4, 20, 28), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(cell.position, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)), const SizedBox(height: 8), Text(cell.reason, style: const TextStyle(color: Color(0xff505565))), const SizedBox(height: 18), Text(cell.imei ?? 'No accepted IMEI', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)), const SizedBox(height: 18), SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: Text(cell.status == CellStatus.accepted ? 'Close' : 'Retake this position')))])));
 }

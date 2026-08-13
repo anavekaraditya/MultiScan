@@ -44,13 +44,16 @@ class VisionCellResult {
 }
 
 class VisionScanResult {
-  const VisionScanResult({required this.imagePath, required this.cells, required this.rawText, required this.processingVersion, this.barcodeValues = const []});
+  const VisionScanResult({required this.imagePath, required this.cells, required this.rawText, required this.processingVersion, this.barcodeValues = const [], this.rawBarcodeCount = 0, this.uniqueBarcodeCount = 0, this.groupCount = 0});
 
   final String imagePath;
   final List<VisionCellResult> cells;
   final String rawText;
   final String processingVersion;
   final List<String> barcodeValues;
+  final int rawBarcodeCount;
+  final int uniqueBarcodeCount;
+  final int groupCount;
 }
 
 class VisionScannerService {
@@ -71,6 +74,9 @@ class VisionScannerService {
       rawText: response['rawText'] as String? ?? '',
       processingVersion: response['processingVersion'] as String? ?? 'ios-vision-v1',
       barcodeValues: barcodeValues,
+      rawBarcodeCount: (response['rawBarcodeCount'] as num?)?.toInt() ?? barcodeValues.length,
+      uniqueBarcodeCount: (response['uniqueBarcodeCount'] as num?)?.toInt() ?? barcodeValues.length,
+      groupCount: (response['groupCount'] as num?)?.toInt() ?? cells.length,
     );
   }
 }

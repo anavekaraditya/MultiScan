@@ -7,6 +7,7 @@ import 'vision_scanner_service.dart';
 class DashboardSyncService {
   DashboardSyncService._();
   static final instance = DashboardSyncService._();
+  static const hostedBaseUrl = 'https://multi-scan-nine.vercel.app';
 
   String? _baseUrl;
   String? _sessionCode;
@@ -14,10 +15,10 @@ class DashboardSyncService {
   bool get isConnected => _baseUrl != null && _sessionCode != null;
   String? get sessionCode => _sessionCode;
 
-  Future<void> connect({required String baseUrl, required String sessionCode}) async {
-    final normalizedUrl = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+  Future<void> connect({required String sessionCode}) async {
+    const normalizedUrl = hostedBaseUrl;
     final normalizedCode = sessionCode.trim().toUpperCase();
-    if (normalizedUrl.isEmpty || normalizedCode.isEmpty) throw StateError('Enter the dashboard address and session code.');
+    if (normalizedCode.isEmpty) throw StateError('Enter the session code.');
     final response = await http.get(Uri.parse('$normalizedUrl/v1/sessions/$normalizedCode'));
     if (response.statusCode != 200) throw StateError('Session not found on the dashboard.');
     _baseUrl = normalizedUrl;

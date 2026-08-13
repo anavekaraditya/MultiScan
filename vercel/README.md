@@ -35,6 +35,26 @@ Click **New session**. Enter the resulting session code and this same base URL
 in the iPhone app. Do not use `127.0.0.1` or the laptop's local IP for a hosted
 deployment.
 
+## Scan a digital barcode sheet
+
+After creating a session, use **Scan a barcode sheet → Choose image**. The
+dashboard processes JPG, PNG, and WebP files locally in the browser, so the
+original image is not uploaded to the Vercel function. The scanner uses
+overlapping image tiles, an enhanced contrast pass, barcode decoding, optional
+OCR verification, Luhn validation, duplicate detection, and inferred row and
+column positions. Only results with independent confirmation are marked
+accepted; single reads remain in review and are not appended.
+
+Use the **Rows** and **Columns** fields when the sheet layout is known. This
+helps keep positions stable when one barcode is missing. The **Append accepted**
+button adds accepted document results to the same session as the phone scanner.
+Phone batches continue to appear through the existing polling flow.
+
+The current document mode accepts image files only. For best results, export a
+flatbed scan at 300–600 DPI rather than a screenshot or compressed photo. The
+barcode and OCR engines are loaded from pinned public CDNs on first use, so the
+laptop needs internet access for the first document scan.
+
 ## Limitations of the temporary mode
 
 - Sessions can disappear when the server is restarted or scaled.

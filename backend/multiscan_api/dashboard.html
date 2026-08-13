@@ -6,10 +6,11 @@
   <title>MultiScan Dashboard</title>
   <style>
     :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; color: #17202a; background: #f6f8fa; }
-    body { max-width: 960px; margin: 0 auto; padding: 32px 20px 56px; }
-    h1 { margin: 0 0 8px; font-size: 32px; } p { color: #64707d; }
-    button { border: 0; border-radius: 10px; padding: 12px 16px; background: #246da0; color: white; font-weight: 700; cursor: pointer; }
-    button.secondary { background: #e7eef3; color: #246da0; }
+    * { box-sizing: border-box; }
+    body { max-width: 1120px; margin: 0 auto; padding: 32px 20px 56px; }
+    h1 { margin: 0 0 8px; font-size: 32px; } h2 { margin: 0; font-size: 20px; }
+    p { color: #64707d; } button, .button { border: 0; border-radius: 10px; padding: 12px 16px; background: #246da0; color: white; font-weight: 700; cursor: pointer; font: inherit; }
+    button:disabled { opacity: .48; cursor: not-allowed; } button.secondary, .button.secondary { background: #e7eef3; color: #246da0; }
     .card { background: white; border: 1px solid #e3e9ee; border-radius: 16px; padding: 20px; margin-top: 18px; box-shadow: 0 8px 24px #1d34420d; }
     .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .spacer { flex: 1; }
     .code { font-size: 30px; font-weight: 800; letter-spacing: 5px; color: #246da0; }
@@ -17,31 +18,240 @@
     .metric strong { font-size: 28px; } .metric span { color: #64707d; font-size: 13px; }
     textarea { width: 100%; min-height: 240px; box-sizing: border-box; border: 1px solid #d9e1e7; border-radius: 10px; padding: 14px; font: 16px ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
     table { width: 100%; border-collapse: collapse; margin-top: 16px; } th, td { text-align: left; padding: 11px 8px; border-bottom: 1px solid #edf0f2; } th { color: #64707d; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-    .hidden { display: none; } .error { color: #b42318; } .muted { color: #64707d; font-size: 13px; }
+    .hidden { display: none !important; } .error { color: #b42318; } .muted { color: #64707d; font-size: 13px; }
+    .file-input { position: relative; display: inline-flex; align-items: center; overflow: hidden; }
+    .file-input input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .document-controls { margin-top: 18px; padding: 12px; background: #f7fafc; border: 1px solid #e3e9ee; border-radius: 12px; }
+    .document-controls label { display: inline-flex; align-items: center; gap: 8px; color: #465361; font-size: 14px; }
+    .document-controls input[type="number"] { width: 82px; padding: 9px; border: 1px solid #ccd7df; border-radius: 8px; font: inherit; }
+    .document-controls select { min-width: 128px; padding: 9px; border: 1px solid #ccd7df; border-radius: 8px; background: white; font: inherit; }
+    .document-controls input[type="checkbox"] { width: 17px; height: 17px; accent-color: #246da0; }
+    .document-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 18px; margin-top: 18px; align-items: start; }
+    .preview-wrap { width: 100%; max-height: 640px; overflow: auto; border-radius: 12px; background: #1f2933; padding: 8px; }
+    .preview-stage { position: relative; width: 100%; }
+    .preview-wrap img { display: block; width: 100%; height: auto; border-radius: 8px; }
+    .box-layer { position: absolute; inset: 0; pointer-events: none; }
+    .scan-box { position: absolute; border: 2px solid #1e9a58; background: #1e9a5816; border-radius: 4px; }
+    .scan-box.review { border-color: #bd8c00; background: #bd8c0016; }
+    .scan-box span { position: absolute; top: -22px; left: -2px; background: #1e9a58; color: white; border-radius: 4px; padding: 2px 5px; font-size: 10px; white-space: nowrap; }
+    .scan-box.review span { background: #bd8c00; }
+    .doc-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+    .doc-summary div { padding: 10px; border-radius: 10px; background: #f3f7f9; } .doc-summary strong { display: block; font-size: 20px; } .doc-summary span { color: #64707d; font-size: 12px; }
+    .document-list { max-height: 470px; overflow: auto; border: 1px solid #e3e9ee; border-radius: 10px; }
+    .document-item { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px; border-bottom: 1px solid #edf0f2; font-size: 13px; }
+    .document-item:last-child { border-bottom: 0; } .document-item code { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .status { display: inline-flex; justify-content: center; padding: 4px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .status.accepted { background: #dff0df; color: #196b3a; } .status.review { background: #fff2c8; color: #946e00; } .status.retake { background: #fde3e3; color: #a52d32; }
+    .note { padding: 10px 12px; border-radius: 10px; background: #f7fafc; color: #586674; font-size: 13px; line-height: 1.45; }
+    @media (max-width: 760px) { body { padding: 22px 14px 40px; } .document-grid { grid-template-columns: 1fr; } .metric { min-width: 0; flex: 1; } .document-item { grid-template-columns: 66px minmax(0, 1fr); } .document-item .confidence { grid-column: 2; } }
   </style>
 </head>
 <body>
   <h1>MultiScan</h1>
-  <p>Live IMEI dashboard for the current scanning session.</p>
+  <p>Live phone scans and local document scans in one temporary session. Nothing is permanently saved by this deployment.</p>
   <section id="start" class="card">
-    <div class="row"><div><strong>Start a laptop session</strong><div class="muted">Join this session from the iPhone scanner.</div></div><div class="spacer"></div><button onclick="createSession()">New session</button></div>
+    <div class="row"><div><strong>Start a laptop session</strong><div class="muted">Join this session from the iPhone scanner or scan a sheet here.</div></div><div class="spacer"></div><button onclick="createSession()">New session</button></div>
     <p id="startError" class="error"></p>
   </section>
   <section id="session" class="hidden">
-    <div class="card"><div class="row"><div><div class="muted">Session code</div><div id="code" class="code"></div></div><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button onclick="newSession()">New session</button></div><p class="muted">On the iPhone, enter this code and the laptop’s local network address.</p></div>
+    <div class="card"><div class="row"><div><div class="muted">Session code</div><div id="code" class="code"></div></div><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button class="secondary" id="endButton" onclick="endSession()">End session</button><button onclick="newSession()">New session</button></div><p id="sessionHint" class="muted">On the iPhone, enter this code and this hosted URL.</p></div>
     <div class="card"><div class="row"><div class="metric"><strong id="deviceCount">0</strong><span>accepted IMEIs</span></div><div class="metric"><strong id="batchCount">0</strong><span>scan batches</span></div><div class="spacer"></div><span id="connection" class="muted">Connecting…</span></div></div>
-    <div class="card"><div class="row"><strong>IMEI list</strong><div class="spacer"></div><span class="muted">One per line; duplicates are preserved.</span></div><textarea id="imeiText" readonly></textarea><table><thead><tr><th>IMEI</th><th>Tray</th><th>Position</th><th>Source</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <div class="card">
+      <div class="row"><div><h2>Scan a barcode sheet</h2><div class="muted">Process a high-resolution JPG, PNG, or WebP locally in this browser.</div></div><div class="spacer"></div><label class="button file-input">Choose image<input id="documentInput" type="file" accept="image/jpeg,image/png,image/webp" /></label></div>
+      <p class="note">For best accuracy, use the original scanner file at 300–600 DPI. The image stays on this laptop; only accepted, validated results are appended to the session. For a large sheet, choose its exact layout before uploading.</p>
+      <p id="documentStatus" class="muted">No document selected.</p>
+      <div id="documentPanel" class="hidden">
+        <div class="document-controls row">
+          <label>Tray/sheet # <input id="documentTrayNumber" type="number" min="1" step="1" value="1" /></label>
+          <label>Sheet layout <select id="documentLayout"><option value="auto">Auto</option><option value="64x4x16">64 · 4×16</option><option value="64x8x8">64 · 8×8</option><option value="128x4x32">128 · 4×32</option><option value="128x8x16">128 · 8×16</option><option value="custom">Custom</option></select></label>
+          <label>Rows <input id="documentRows" type="number" min="1" step="1" placeholder="Auto" /></label>
+          <label>Columns <input id="documentColumns" type="number" min="1" step="1" placeholder="Auto" /></label>
+          <label><input id="documentOcr" type="checkbox" checked /> OCR verification (slower)</label>
+          <div class="spacer"></div><button class="secondary" id="copyDocumentButton" disabled onclick="copyDocumentCodes()">Copy detected</button><button id="documentAppend" disabled onclick="appendDocumentResults()">Append accepted</button>
+        </div>
+        <div class="document-grid">
+          <div class="preview-wrap"><div class="preview-stage"><img id="documentPreview" alt="Uploaded barcode sheet preview" /><div id="documentBoxes" class="box-layer"></div></div></div>
+          <div><div id="documentSummary" class="doc-summary"></div><p id="documentWarning" class="note"></p><div id="documentList" class="document-list"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card"><div class="row"><strong>IMEI list</strong><div class="spacer"></div><span class="muted">Phone and document results appear here; duplicates are preserved.</span></div><textarea id="imeiText" readonly></textarea><table><thead><tr><th>IMEI</th><th>Tray</th><th>Position</th><th>Source</th></tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 <script>
-let sessionCode = new URLSearchParams(location.search).get('session'); let state = null; let socket = null;
+let sessionCode = new URLSearchParams(location.search).get('session');
+let state = null;
+let poller = null;
+let documentRun = null;
+let documentObjectUrl = null;
+let documentBusy = false;
+let documentFile = null;
+const scriptPromises = {};
+
 function showSession() { document.getElementById('start').classList.add('hidden'); document.getElementById('session').classList.remove('hidden'); document.getElementById('code').textContent = sessionCode; }
-async function createSession() { const response = await fetch('/v1/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); const data = await response.json(); sessionCode = data.session_code; history.replaceState({}, '', '?session=' + sessionCode); showSession(); await refresh(); connect(); }
-function newSession() { sessionCode = null; state = null; if (socket) socket.close(); document.getElementById('session').classList.add('hidden'); document.getElementById('start').classList.remove('hidden'); }
-async function refresh() { const response = await fetch('/v1/sessions/' + sessionCode); if (!response.ok) return; state = await response.json(); render(); }
-function render() { document.getElementById('deviceCount').textContent = state.device_count; document.getElementById('batchCount').textContent = state.batch_count; document.getElementById('imeiText').value = state.imeis.map(x => x.imei).join('\n'); document.getElementById('rows').innerHTML = state.imeis.map(x => `<tr><td>${x.imei}</td><td>${x.tray_number}</td><td>${x.position}</td><td>${x.source}</td></tr>`).join(''); }
-function connect() { socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/v1/sessions/' + sessionCode + '/events'); socket.onopen = () => document.getElementById('connection').textContent = 'Live'; socket.onclose = () => { document.getElementById('connection').textContent = 'Reconnecting…'; setTimeout(connect, 2000); }; setInterval(refresh, 2000); }
+async function createSession() { const response = await fetch('/v1/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); const data = await response.json(); sessionCode = data.session_code; history.replaceState({}, '', '?session=' + sessionCode); showSession(); await refresh(); startPolling(); }
+function newSession() { sessionCode = null; state = null; documentRun = null; if (poller) clearInterval(poller); document.getElementById('session').classList.add('hidden'); document.getElementById('start').classList.remove('hidden'); }
+async function refresh() { if (!sessionCode) return; const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode)); if (!response.ok) { document.getElementById('connection').textContent = 'Session unavailable'; return; } state = await response.json(); render(); document.getElementById('connection').textContent = 'Connected · refreshing automatically'; }
+function render() { document.getElementById('deviceCount').textContent = state.device_count; document.getElementById('batchCount').textContent = state.batch_count; document.getElementById('imeiText').value = state.imeis.map(x => x.imei).join('\n'); document.getElementById('rows').innerHTML = state.imeis.map(x => `<tr><td>${escapeHtml(x.imei)}</td><td>${escapeHtml(x.tray_number)}</td><td>${escapeHtml(x.position)}</td><td>${escapeHtml(x.source)}</td></tr>`).join(''); document.getElementById('endButton').disabled = state.ended; document.getElementById('endButton').textContent = state.ended ? 'Session ended' : 'End session'; document.getElementById('sessionHint').textContent = state.ended ? 'This session is closed. Start a new session to scan more devices.' : 'On the iPhone, enter this code and this hosted URL.'; if (documentRun) renderDocumentState(); }
+async function endSession() { if (!sessionCode || state?.ended) return; if (!confirm('End this scanning session? The phone will no longer be able to add scans.')) return; const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode) + '/end', {method:'POST'}); if (response.ok) { await refresh(); } }
+function startPolling() { if (poller) clearInterval(poller); poller = setInterval(refresh, 2000); }
 async function copyImeis() { await navigator.clipboard.writeText(document.getElementById('imeiText').value); }
-if (sessionCode) { showSession(); refresh().then(connect); }
+function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character])); }
+function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
+function requestedGrid() { const rows = Number(document.getElementById('documentRows').value) || 0; const columns = Number(document.getElementById('documentColumns').value) || 0; if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || columns < 1) return null; return {rows: clamp(rows, 1, 64), cols: clamp(columns, 1, 32)}; }
+function luhn(value) { let total = 0; for (let index = 0; index < value.length; index += 1) { let digit = Number(value[index]); if (index % 2 === 1) { digit *= 2; if (digit > 9) digit -= 9; } total += digit; } return total % 10 === 0; }
+function candidateFromText(raw) { const text = String(raw || '').replace(/[Oo]/g, '0').replace(/[Il]/g, '1'); const chunks = text.split(/[\n,;|]+/); for (const chunk of chunks) { const digits = chunk.replace(/\D/g, ''); if (digits.length === 15 && luhn(digits)) return digits; } const digits = text.replace(/\D/g, ''); return digits.length === 15 && luhn(digits) ? digits : null; }
+function candidatesFromText(raw) { const values = new Set(); String(raw || '').split(/[\n,;|]+/).forEach(part => { const value = candidateFromText(part); if (value) values.add(value); }); return [...values]; }
+function documentCandidateFromText(raw) { const text = String(raw || '').replace(/[Oo]/g, '0').replace(/[Il]/g, '1'); const chunks = text.split(/[\n,;|]+/); for (const chunk of chunks) { const digits = chunk.replace(/\D/g, ''); if (digits.length === 15) return digits; } const digits = text.replace(/\D/g, ''); return digits.length === 15 ? digits : null; }
+function documentCandidatesFromText(raw) { const values = new Set(); String(raw || '').split(/[\n,;|]+/).forEach(part => { const value = documentCandidateFromText(part); if (value) values.add(value); }); return [...values]; }
+function loadScript(url, globalName) { if (window[globalName]) return Promise.resolve(window[globalName]); if (scriptPromises[url]) return scriptPromises[url]; scriptPromises[url] = new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = url; script.async = true; script.crossOrigin = 'anonymous'; script.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(globalName + ' did not load')); script.onerror = () => reject(new Error('Could not load ' + globalName)); document.head.appendChild(script); }); return scriptPromises[url]; }
+function setDocumentStatus(message, kind = 'muted') { const element = document.getElementById('documentStatus'); element.textContent = message; element.className = kind === 'error' ? 'error' : 'muted'; }
+function updateDocumentProgress(done, total) { setDocumentStatus('Reading barcode regions… ' + Math.round(done / Math.max(1, total) * 100) + '%'); }
+function imageCanvas(image) { const maximum = 3000; const scale = Math.min(1, maximum / Math.max(image.naturalWidth, image.naturalHeight)); const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale)); const context = canvas.getContext('2d', {willReadFrequently: true}); context.imageSmoothingEnabled = true; context.drawImage(image, 0, 0, canvas.width, canvas.height); return canvas; }
+function enhancedCanvas(source) { const canvas = document.createElement('canvas'); canvas.width = source.width; canvas.height = source.height; const context = canvas.getContext('2d', {willReadFrequently: true}); context.drawImage(source, 0, 0); const imageData = context.getImageData(0, 0, canvas.width, canvas.height); const pixels = imageData.data; for (let index = 0; index < pixels.length; index += 4) { const gray = pixels[index] * .2126 + pixels[index + 1] * .7152 + pixels[index + 2] * .0722; const contrast = clamp((gray - 128) * 1.55 + 128, 0, 255); pixels[index] = contrast; pixels[index + 1] = contrast; pixels[index + 2] = contrast; } context.putImageData(imageData, 0, 0); return canvas; }
+function gridDefinitions(source) { const explicit = requestedGrid(); if (explicit) return [{...explicit, name: 'configured'}]; const aspect = source.height / source.width; const presets = aspect > 2.35 ? [{cols: 4, rows: 32}, {cols: 8, rows: 16}] : [{cols: 4, rows: 16}, {cols: 8, rows: 8}]; return presets.map((grid, index) => ({...grid, name: 'auto-' + grid.cols + 'x' + grid.rows + '-' + index})); }
+function tileDefinitions(source, grid) { const tiles = []; const tileWidth = source.width / grid.cols; const tileHeight = source.height / grid.rows; const overlap = .20; for (let row = 0; row < grid.rows; row += 1) { for (let column = 0; column < grid.cols; column += 1) { const x = Math.max(0, column * tileWidth - tileWidth * overlap / 2); const y = Math.max(0, row * tileHeight - tileHeight * overlap / 2); const maxX = Math.min(source.width, (column + 1) * tileWidth + tileWidth * overlap / 2); const maxY = Math.min(source.height, (row + 1) * tileHeight + tileHeight * overlap / 2); tiles.push({x, y, width: maxX - x, height: maxY - y, grid: grid.name, row, column}); } } return tiles; }
+function drawTile(source, tile, crop = {x: 0, y: 0, width: 1, height: 1}) { const cropWidth = tile.width * crop.width; const cropHeight = tile.height * crop.height; const scale = Math.min(4, Math.max(1, 1800 / Math.max(cropWidth, cropHeight))); const canvas = document.createElement('canvas'); canvas.width = Math.max(160, Math.round(cropWidth * scale)); canvas.height = Math.max(120, Math.round(cropHeight * scale)); const context = canvas.getContext('2d', {willReadFrequently: true}); context.imageSmoothingEnabled = scale > 1; context.imageSmoothingQuality = 'high'; context.drawImage(source, tile.x + tile.width * crop.x, tile.y + tile.height * crop.y, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height); return canvas; }
+function resultPoints(result) { const points = result?.getResultPoints?.() || result?.resultPoints || []; return points.map(point => ({x: typeof point.getX === 'function' ? point.getX() : point.x, y: typeof point.getY === 'function' ? point.getY() : point.y})).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)); }
+function boxFromResult(result, tile, canvas, source) { const points = resultPoints(result); let minX = 0, minY = 0, maxX = canvas.width, maxY = canvas.height; if (points.length) { minX = Math.min(...points.map(point => point.x)); minY = Math.min(...points.map(point => point.y)); maxX = Math.max(...points.map(point => point.x)); maxY = Math.max(...points.map(point => point.y)); const minimumWidth = canvas.width * .35; const minimumHeight = canvas.height * .25; if (maxX - minX < minimumWidth) { const center = (maxX + minX) / 2; minX = center - minimumWidth / 2; maxX = center + minimumWidth / 2; } if (maxY - minY < minimumHeight) { const center = (maxY + minY) / 2; minY = center - minimumHeight / 2; maxY = center + minimumHeight / 2; } } const x = clamp((tile.x + minX / canvas.width * tile.width) / source.width - .006, 0, 1); const y = clamp((tile.y + minY / canvas.height * tile.height) / source.height - .006, 0, 1); const width = clamp((maxX - minX) / canvas.width * tile.width / source.width + .012, .01, 1 - x); const height = clamp((maxY - minY) / canvas.height * tile.height / source.height + .012, .01, 1 - y); return {x, y, width, height}; }
+function boxCenter(box) { return {x: box.x + box.width / 2, y: box.y + box.height / 2}; }
+async function decodeTile(reader, source, tile, variant, passKey) { const crops = [{x: 0, y: 0, width: 1, height: 1}, {x: .04, y: .08, width: .92, height: .84}, {x: 0, y: .18, width: 1, height: .62}, {x: .08, y: .28, width: .84, height: .48}]; const found = []; for (const crop of crops) { let canvas = drawTile(source, tile, crop); if (variant === 'enhanced') canvas = enhancedCanvas(canvas); try { const result = await reader.decodeFromCanvas(canvas); const text = result?.getText?.() || result?.text || ''; const value = documentCandidateFromText(text); if (!value || found.some(item => item.value === value)) continue; found.push({value, rawText: text, format: result?.getBarcodeFormat?.() || '', box: boxFromResult(result, {...tile, x: tile.x + tile.width * crop.x, y: tile.y + tile.height * crop.y, width: tile.width * crop.width, height: tile.height * crop.height}, canvas, source), passKey, variant}); } catch (_) {} } return found; }
+function deduplicateObservations(observations) { const groups = []; for (const observation of observations) { const center = boxCenter(observation.box); let group = groups.find(candidate => candidate.value === observation.value && Math.hypot(boxCenter(candidate.box).x - center.x, boxCenter(candidate.box).y - center.y) < .035); if (!group) { group = {value: observation.value, box: observation.box, observations: []}; groups.push(group); } group.observations.push(observation); group.box = {x: Math.min(group.box.x, observation.box.x), y: Math.min(group.box.y, observation.box.y), width: Math.max(group.box.x + group.box.width, observation.box.x + observation.box.width) - Math.min(group.box.x, observation.box.x), height: Math.max(group.box.y + group.box.height, observation.box.y + observation.box.height) - Math.min(group.box.y, observation.box.y)}; } return groups; }
+function cluster(values, tolerance) { const sorted = [...values].sort((first, second) => first - second); const output = []; for (const value of sorted) { const last = output[output.length - 1]; if (last && Math.abs(last.mean - value) <= tolerance) { last.values.push(value); last.mean = last.values.reduce((sum, item) => sum + item, 0) / last.values.length; } else { output.push({mean: value, values: [value]}); } } return output; }
+function inferredLayout(groups) {
+  if (!groups.length) return [];
+  const explicit = requestedGrid();
+  const rowsInput = explicit?.rows || 0;
+  const columnsInput = explicit?.cols || 0;
+  const centers = groups.map(group => boxCenter(group.box));
+  const minY = Math.min(...centers.map(point => point.y));
+  const maxY = Math.max(...centers.map(point => point.y));
+  const minX = Math.min(...centers.map(point => point.x));
+  const maxX = Math.max(...centers.map(point => point.x));
+  const medianHeight = [...groups].sort((first, second) => first.box.height - second.box.height)[Math.floor(groups.length / 2)]?.box.height || .05;
+  const rowTolerance = Math.max(.018, Math.min(.055, medianHeight * .9));
+  const rowCenters = rowsInput
+    ? Array.from({length: rowsInput}, (_, index) => (index + .5) / rowsInput)
+    : cluster(centers.map(point => point.y), rowTolerance).map(item => item.mean);
+  const medianWidth = [...groups].sort((first, second) => first.box.width - second.box.width)[Math.floor(groups.length / 2)]?.box.width || .1;
+  const columnTolerance = Math.max(.04, Math.min(.12, medianWidth * .75));
+  const columnCenters = columnsInput
+    ? Array.from({length: columnsInput}, (_, index) => (index + .5) / columnsInput)
+    : cluster(centers.map(point => point.x), columnTolerance).map(item => item.mean);
+  const mapped = groups.map(group => {
+    const center = boxCenter(group.box);
+    const row = rowCenters.reduce((best, value, index) => Math.abs(value - center.y) < Math.abs(rowCenters[best] - center.y) ? index : best, 0);
+    const column = columnCenters.reduce((best, value, index) => Math.abs(value - center.x) < Math.abs(columnCenters[best] - center.x) ? index : best, 0);
+    const passKeys = new Set(group.observations.map(observation => observation.passKey));
+    const barcodeCount = group.observations.length;
+    const ocrConfirmed = documentRun?.ocrValues?.includes(group.value) || false;
+    const valid = luhn(group.value);
+    const ocrOnly = barcodeCount === 0 && ocrConfirmed;
+    const accepted = (passKeys.size >= 2 && barcodeCount >= 2) || ocrConfirmed;
+    return {
+      ...group,
+      position: 'R' + (row + 1) + 'C' + (column + 1),
+      count: barcodeCount,
+      passCount: passKeys.size,
+      ocrConfirmed,
+      status: accepted ? 'accepted' : 'review',
+      source: ocrOnly ? 'document-ocr' : (accepted && ocrConfirmed ? 'document-barcode+ocr' : 'document-barcode'),
+      confidence: ocrOnly ? .92 : (accepted ? .97 : .84),
+      reason: !valid
+        ? (accepted ? '15-digit barcode accepted; IMEI check digit did not validate' : '15 digits detected; review barcode type or source')
+        : accepted
+        ? (ocrOnly ? 'Valid OCR candidate detected; review the highlighted cell' : (ocrConfirmed ? 'Repeated barcode and OCR agree' : 'Repeated valid barcode detections agree'))
+        : 'Valid barcode detected once; needs a second independent read',
+    };
+  });
+  const valueCounts = new Map();
+  const positionCounts = new Map();
+  mapped.forEach(item => {
+    valueCounts.set(item.value, (valueCounts.get(item.value) || 0) + 1);
+    positionCounts.set(item.position, (positionCounts.get(item.position) || 0) + 1);
+  });
+  return mapped.map(item => {
+    if (valueCounts.get(item.value) > 1) return {...item, status: 'review', confidence: .84, reason: 'Duplicate value detected; review all locations'};
+    if (positionCounts.get(item.position) > 1) return {...item, status: 'review', confidence: .84, reason: 'Multiple candidates assigned to this position'};
+    return item;
+  });
+}
+async function processDocument(file) {
+  if (documentBusy) return;
+  documentFile = file;
+  documentBusy = true;
+  documentRun = null;
+  if (file.size > 24 * 1024 * 1024) { setDocumentStatus('This image is larger than 24 MB. Export a lower-compression JPG or PNG and try again.', 'error'); documentBusy = false; return; }
+  if (!file.type.startsWith('image/')) { setDocumentStatus('Please choose a JPG, PNG, or WebP image. PDF processing is not enabled in this version.', 'error'); documentBusy = false; return; }
+  setDocumentStatus('Loading original image…');
+  const image = new Image();
+  const objectUrl = URL.createObjectURL(file);
+  documentObjectUrl = objectUrl;
+  image.onload = async () => {
+    try {
+      const source = imageCanvas(image);
+      document.getElementById('documentPreview').src = objectUrl;
+      document.getElementById('documentPanel').classList.remove('hidden');
+      const engine = await loadScript('https://unpkg.com/@zxing/browser@0.2.0', 'ZXingBrowser');
+      const Reader = engine.BrowserMultiFormatReader || engine.BrowserMultiFormatOneDReader;
+      if (!Reader) throw new Error('Barcode reader is unavailable.');
+      const reader = new Reader();
+      const grids = gridDefinitions(source);
+      const variants = [{name: 'original', canvas: source}, {name: 'enhanced', canvas: source}];
+      const tiles = grids.flatMap(grid => tileDefinitions(source, grid));
+      const total = tiles.length * variants.length;
+      let done = 0;
+      const observations = [];
+      for (const variant of variants) {
+        for (let index = 0; index < tiles.length; index += 4) {
+          const batch = tiles.slice(index, index + 4);
+          const batchResults = await Promise.all(batch.map(tile => decodeTile(reader, variant.canvas, tile, variant.name, variant.name + ':' + tile.grid + ':' + tile.row + ':' + tile.column)));
+          batchResults.forEach(results => observations.push(...results));
+          done += batch.length;
+          updateDocumentProgress(done, total);
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      const barcodeGroups = deduplicateObservations(observations);
+      documentRun = {fileName: file.name, source, observations, barcodeGroups, ocrValues: [], results: [], appended: false};
+      setDocumentStatus('Barcode pass complete. Checking independent evidence…');
+      if (document.getElementById('documentOcr').checked) {
+        await runDocumentOcr(source);
+        for (const observation of documentRun.ocrObservations || []) {
+          if (documentRun.barcodeGroups.some(group => group.value === observation.value)) continue;
+          documentRun.barcodeGroups.push({value: observation.value, box: observation.box, observations: []});
+        }
+      }
+      if (documentRun.barcodeGroups.length === 0) {
+        setDocumentStatus('No valid 15-digit barcode or OCR candidates were found. Try a higher-resolution scan with more white space around each barcode.', 'error');
+        documentRun.results = [];
+        renderDocumentState();
+        documentBusy = false;
+        return;
+      }
+      documentRun.results = inferredLayout(documentRun.barcodeGroups);
+      renderDocumentState();
+      setDocumentStatus('Finished. Only accepted results can be appended to the session.', 'success');
+    } catch (error) {
+      setDocumentStatus(error.message || 'Document processing failed.', 'error');
+      document.getElementById('documentPanel').classList.remove('hidden');
+    } finally {
+      documentBusy = false;
+      if (documentRun) renderDocumentState();
+    }
+  };
+  image.onerror = () => { setDocumentStatus('The image could not be opened by this browser.', 'error'); documentBusy = false; };
+  image.src = objectUrl;
+}
+async function runDocumentOcr(source) { try { setDocumentStatus('Running OCR verification… this may take a minute on the first scan.'); const tesseract = await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js', 'Tesseract'); const worker = await tesseract.createWorker('eng', 1, {logger: message => { if (message.status === 'recognizing text') setDocumentStatus('Running OCR verification… ' + Math.round((message.progress || 0) * 100) + '%'); }}); await worker.setParameters({tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '11'}); const result = await worker.recognize(source); const values = documentCandidatesFromText(result?.data?.text || ''); const observations = []; for (const word of result?.data?.words || []) { for (const value of documentCandidatesFromText(word.text)) { const bbox = word.bbox || {}; const x = clamp((Number(bbox.x0) || 0) / source.width - .012, 0, 1); const y = clamp((Number(bbox.y0) || 0) / source.height - .012, 0, 1); const right = clamp((Number(bbox.x1) || source.width) / source.width + .012, 0, 1); const bottom = clamp((Number(bbox.y1) || source.height) / source.height + .012, 0, 1); observations.push({value, box: {x, y, width: Math.max(.01, right - x), height: Math.max(.01, bottom - y)}}); } } documentRun.ocrValues = values; documentRun.ocrObservations = observations; await worker.terminate(); } catch (_) { documentRun.ocrValues = []; documentRun.ocrObservations = []; setDocumentStatus('Barcode pass completed; OCR verification was unavailable.'); } }
+function renderDocumentState() { if (!documentRun) return; const results = documentRun.results || []; const accepted = results.filter(item => item.status === 'accepted').length; const review = results.filter(item => item.status === 'review').length; const expected = requestedGrid(); const expectedCount = expected ? expected.rows * expected.cols : null; const distinctPositions = new Set(results.map(item => item.position)).size; const missing = expectedCount === null ? null : Math.max(0, expectedCount - distinctPositions); const duplicateValues = results.filter((item, index, all) => all.filter(other => other.value === item.value).length > 1).map(item => item.value); const duplicateCount = new Set(duplicateValues).size; document.getElementById('documentSummary').innerHTML = `<div><strong>${accepted}</strong><span>accepted</span></div><div><strong>${review}</strong><span>review</span></div><div><strong>${documentRun.barcodeGroups?.length || 0}</strong><span>barcode locations</span></div><div><strong>${missing === null ? '—' : missing}</strong><span>${missing === null ? 'missing · auto' : 'missing slots'}</span></div>`; const missingMessage = missing === null || missing === 0 ? '' : ` ${missing} expected slot(s) were not decoded.`; document.getElementById('documentWarning').textContent = review ? 'Review items were deliberately not appended. Improve the scan or use the phone for a close-up. ' + (duplicateCount ? duplicateCount + ' duplicate value(s) also need review.' : '') + missingMessage : missingMessage ? 'Some expected slots are missing. Improve the source image or rescan before appending.' + missingMessage : 'All decoded locations have independent confirmation. Review the boxes on the preview before appending.'; document.getElementById('documentAppend').disabled = state?.ended || documentBusy || accepted === 0 || documentRun.appended; document.getElementById('copyDocumentButton').disabled = results.length === 0; document.getElementById('documentList').innerHTML = results.length ? results.map(item => `<div class="document-item"><span class="status ${item.status}">${item.status}</span><code>${escapeHtml(item.value)}</code><span class="confidence">${escapeHtml(item.position)} · ${Math.round(item.confidence * 100)}% · ${item.count} reads</span></div>`).join('') : '<div class="document-item"><span class="muted">No valid results yet.</span></div>'; const boxLayer = document.getElementById('documentBoxes'); boxLayer.innerHTML = results.map(item => `<div class="scan-box ${item.status === 'review' ? 'review' : ''}" style="left:${item.box.x * 100}%;top:${item.box.y * 100}%;width:${item.box.width * 100}%;height:${item.box.height * 100}%"><span>${escapeHtml(item.position)} · ${escapeHtml(item.value)}</span></div>`).join(''); }
+async function appendDocumentResults() { if (!documentRun || !sessionCode || state?.ended) return; const accepted = documentRun.results.filter(item => item.status === 'accepted'); if (!accepted.length) return; const trayNumber = Math.max(1, Number(document.getElementById('documentTrayNumber').value) || 1); const batchId = 'document-' + Date.now() + '-' + (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)); const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode) + '/batches', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({batch_id: batchId, tray_number: trayNumber, cells: documentRun.results.map(item => ({position: item.position, imei: item.value, status: item.status, source: item.source, confidence: item.confidence, reason: item.reason}))})}); if (!response.ok) { let detail = 'The accepted results could not be appended.'; try { const body = await response.json(); detail = body.detail || detail; } catch (_) {} setDocumentStatus(detail, 'error'); return; } documentRun.appended = true; await refresh(); setDocumentStatus('Accepted document results appended to Tray ' + trayNumber + '.', 'success'); }
+async function copyDocumentCodes() { if (!documentRun) return; const values = documentRun.results.filter(item => item.status === 'accepted').map(item => item.value).join('\n'); await navigator.clipboard.writeText(values); }
+function reprocessWithLayout() { if (documentFile && !documentBusy) processDocument(documentFile); }
+document.getElementById('documentInput').addEventListener('change', event => { const file = event.target.files?.[0]; if (file) { const suggestedTray = (state?.batches?.length || 0) + 1; document.getElementById('documentTrayNumber').value = suggestedTray; processDocument(file); } });
+document.getElementById('documentLayout').addEventListener('change', event => { const presets = { '64x4x16': {rows: 16, cols: 4}, '64x8x8': {rows: 8, cols: 8}, '128x4x32': {rows: 32, cols: 4}, '128x8x16': {rows: 16, cols: 8} }; const preset = presets[event.target.value]; if (preset) { document.getElementById('documentRows').value = preset.rows; document.getElementById('documentColumns').value = preset.cols; } else if (event.target.value === 'auto') { document.getElementById('documentRows').value = ''; document.getElementById('documentColumns').value = ''; } reprocessWithLayout(); });
+document.getElementById('documentRows').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; reprocessWithLayout(); });
+document.getElementById('documentColumns').addEventListener('change', () => { document.getElementById('documentLayout').value = 'custom'; reprocessWithLayout(); });
+if (sessionCode) { showSession(); refresh().then(startPolling); }
 </script>
 </body>
 </html>

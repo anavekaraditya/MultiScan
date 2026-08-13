@@ -22,6 +22,16 @@ class DashboardSessionTests(unittest.TestCase):
         self.assertFalse(store.add_batch(session, "batch-1", 1, [cell]))
         self.assertEqual(1, len(session.imeis))
 
+    def test_ended_session_rejects_new_batches(self) -> None:
+        store = SessionStore()
+        session = store.create()
+        cell = DashboardCell("P1", "490154203237518", "accepted", "barcode", 0.99, "valid")
+
+        self.assertIs(store.end(session.code), session)
+        self.assertTrue(session.snapshot()["ended"])
+        with self.assertRaises(ValueError):
+            store.add_batch(session, "batch-after-end", 1, [cell])
+
 
 if __name__ == "__main__":
     unittest.main()

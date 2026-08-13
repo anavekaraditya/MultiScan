@@ -2,23 +2,23 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from uuid import uuid4
 
 try:
     from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-    from fastapi.responses import HTMLResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse
     from pydantic import BaseModel, Field
 except ImportError:  # Keeps the domain usable before optional API dependencies are installed.
     FastAPI = None
 
-from .domain import Evidence, ScanBatch, all_positions, resolve_evidence
+from .domain import Evidence, ScanBatch, all_positions, is_valid_imei, resolve_evidence
 from .session_store import DashboardCell, SessionStore
 
 
 class EvidenceInput(BaseModel):
-    barcode: str | None = None
-    ocr: str | None = None
+    barcode: Optional[str] = None
+    ocr: Optional[str] = None
     barcode_confidence: float = Field(0, ge=0, le=1)
     ocr_confidence: float = Field(0, ge=0, le=1)
 
@@ -26,13 +26,13 @@ class EvidenceInput(BaseModel):
 class ScanRequest(BaseModel):
     tray_id: str = Field(min_length=1)
     operator_id: str = Field(min_length=1)
-    batch_id: str | None = None
+    batch_id: Optional[str] = None
     cells: dict[str, EvidenceInput]
 
 
 class DashboardCellInput(BaseModel):
     position: str = Field(min_length=1)
-    imei: str | None = None
+    imei: Optional[str] = None
     status: str = Field(min_length=1)
     source: str = Field(min_length=1)
     confidence: float = Field(0, ge=0, le=1)
@@ -71,6 +71,10 @@ if FastAPI:
     sessions = SessionStore()
     dashboard_path = Path(__file__).with_name("dashboard.html")
 
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/dashboard")
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -102,9 +106,29 @@ if FastAPI:
         session = sessions.get(session_code)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
+        invalid = [
+            cell.position
+            for cell in request.cells
+            if cell.status == "accepted" and not is_valid_imei(cell.imei)
+        ]
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Accepted cells must contain valid 15-digit IMEIs: {invalid}",
+            )
         cells = [DashboardCell(**cell.model_dump()) for cell in request.cells]
-        added = sessions.add_batch(session, request.batch_id, request.tray_number, cells)
+        try:
+            added = sessions.add_batch(session, request.batch_id, request.tray_number, cells)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"accepted": added, **session.snapshot()}
+
+    @app.post("/v1/sessions/{session_code}/end")
+    def end_session(session_code: str) -> dict[str, Any]:
+        session = sessions.end(session_code)
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return session.snapshot()
 
     @app.websocket("/v1/sessions/{session_code}/events")
     async def session_events(websocket: WebSocket, session_code: str) -> None:

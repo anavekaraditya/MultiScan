@@ -29,10 +29,10 @@ private struct VisionEvidence {
 }
 
 private struct VisionBatch {
-  let evidence: [VisionEvidence]
-  let barcodePayloads: [String]
-  let rawText: String
-  let barcodeBoxes: [CGRect]
+  var evidence: [VisionEvidence]
+  var barcodePayloads: [String]
+  var rawText: String
+  var barcodeBoxes: [CGRect]
 }
 
 private struct VisionGroup {
@@ -75,16 +75,28 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
       throw NSError(domain: "VisionScanner", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not load the selected image."])
     }
 
-    let first = read(image, rotated: false)
-    let second = rotate180(image).map { read($0, rotated: true) } ?? VisionBatch(evidence: [], barcodePayloads: [], rawText: "", barcodeBoxes: [])
-    let evidence = unique(first.evidence + second.evidence)
-    let barcodePayloads = Array(Set(first.barcodePayloads + second.barcodePayloads))
-    let allText = [first.rawText, second.rawText].filter { !$0.isEmpty }.joined(separator: "\n")
-    let barcodeBoxes = first.barcodeBoxes + second.barcodeBoxes
+    // A full-sheet request can miss small symbols when many barcodes are
+    // visible at once. Scan overlapping tiles as well as the complete image,
+    // then merge the repeated observations below.
+    var passes: [VisionBatch] = [read(image, rotated: false), readTiled(image, rotated: false)]
+    if let enhanced = enhancedImage(image) {
+      passes.append(readTiled(enhanced, rotated: false))
+    }
+    if let rotatedImage = rotate180(image) {
+      passes.append(readTiled(rotatedImage, rotated: true))
+      if let enhancedRotated = enhancedImage(rotatedImage) {
+        passes.append(readTiled(enhancedRotated, rotated: true))
+      }
+    }
+
+    let evidence = unique(passes.flatMap(\.evidence))
+    let barcodePayloads = Array(Set(passes.flatMap(\.barcodePayloads)))
+    let allText = passes.map(\.rawText).filter { !$0.isEmpty }.joined(separator: "\n")
+    let barcodeBoxes = uniqueBoxes(passes.flatMap(\.barcodeBoxes))
 
     let groups = compactGroups(evidence)
     let positions = dynamicPositions(groups)
-    var outputGroups = groups
+    var outputGroups = groups.sorted { $0.topY == $1.topY ? $0.x < $1.x : $0.topY < $1.topY }
     if outputGroups.isEmpty && !barcodePayloads.isEmpty {
       outputGroups = [VisionGroup(evidence: [], x: 0.5, topY: 0.5)]
     }
@@ -102,12 +114,53 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
       "barcodeValues": barcodePayloads,
       "barcodeBoxes": barcodeBoxes.map(boxMap),
       "rawText": allText,
-      "processingVersion": "ios-vision-dynamic-layout-v3",
+      "rawBarcodeCount": passes.reduce(0) { $0 + $1.barcodePayloads.count },
+      "uniqueBarcodeCount": barcodePayloads.count,
+      "groupCount": groups.count,
+      "processingVersion": "ios-vision-tiled-v4",
     ]
   }
 
   private func read(_ image: CGImage, rotated: Bool) -> VisionBatch {
+    let fullRect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+    return read(image, rotated: rotated, crop: fullRect, canvasSize: CGSize(width: image.width, height: image.height))
+  }
+
+  private func readTiled(_ image: CGImage, rotated: Bool) -> VisionBatch {
+    let width = CGFloat(image.width)
+    let height = CGFloat(image.height)
+    let canvasSize = CGSize(width: width, height: height)
+    let columns = 3
+    let rows = 4
+    let overlap: CGFloat = 0.18
+    var result = VisionBatch(evidence: [], barcodePayloads: [], rawText: "", barcodeBoxes: [])
+
+    for row in 0..<rows {
+      for column in 0..<columns {
+        let baseX = CGFloat(column) / CGFloat(columns)
+        let baseY = CGFloat(row) / CGFloat(rows)
+        let baseWidth = 1 / CGFloat(columns)
+        let baseHeight = 1 / CGFloat(rows)
+        let crop = CGRect(
+          x: max(0, (baseX - baseWidth * overlap / 2) * width),
+          y: max(0, (baseY - baseHeight * overlap / 2) * height),
+          width: min(width, (baseWidth * (1 + overlap)) * width),
+          height: min(height, (baseHeight * (1 + overlap)) * height)
+        ).intersection(CGRect(x: 0, y: 0, width: width, height: height)).integral
+        guard crop.width > 20, crop.height > 20, let tile = image.cropping(to: crop) else { continue }
+        let batch = read(tile, rotated: rotated, crop: crop, canvasSize: canvasSize)
+        result.evidence.append(contentsOf: batch.evidence)
+        result.barcodePayloads.append(contentsOf: batch.barcodePayloads)
+        result.barcodeBoxes.append(contentsOf: batch.barcodeBoxes)
+        if !batch.rawText.isEmpty { result.rawText += batch.rawText + "\n" }
+      }
+    }
+    return result
+  }
+
+  private func read(_ image: CGImage, rotated: Bool, crop: CGRect, canvasSize: CGSize) -> VisionBatch {
     let barcodeRequest = VNDetectBarcodesRequest()
+    barcodeRequest.symbologies = [.code128, .code39, .code93, .itf14, .ean13, .ean8, .upce]
     let textRequest = VNRecognizeTextRequest()
     textRequest.recognitionLevel = .accurate
     textRequest.recognitionLanguages = ["en-US"]
@@ -125,10 +178,10 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
     for observation in barcodeRequest.results ?? [] {
       guard let payload = observation.payloadStringValue else { continue }
       payloads.append(payload)
-      barcodeBoxes.append(mappedRect(observation.boundingBox, rotated: rotated))
-      let point = mappedPoint(observation.boundingBox, rotated: rotated)
+      barcodeBoxes.append(mappedRect(observation.boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize))
+      let point = mappedPoint(observation.boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize)
       for value in validCandidates(payload) {
-        evidence.append(VisionEvidence(value: value, source: "barcode", confidence: observation.confidence, x: point.x, topY: point.y, box: mappedRect(observation.boundingBox, rotated: rotated)))
+        evidence.append(VisionEvidence(value: value, source: "barcode", confidence: observation.confidence, x: point.x, topY: point.y, box: mappedRect(observation.boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize)))
       }
     }
 
@@ -136,9 +189,9 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
     for observation in textRequest.results ?? [] {
       guard let recognized = observation.topCandidates(1).first else { continue }
       lines.append(recognized.string)
-      let point = mappedPoint(observation.boundingBox, rotated: rotated)
+      let point = mappedPoint(observation.boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize)
       for value in validCandidates(recognized.string) {
-        evidence.append(VisionEvidence(value: value, source: "ocr", confidence: observation.confidence, x: point.x, topY: point.y, box: mappedRect(observation.boundingBox, rotated: rotated)))
+        evidence.append(VisionEvidence(value: value, source: "ocr", confidence: observation.confidence, x: point.x, topY: point.y, box: mappedRect(observation.boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize)))
       }
     }
     return VisionBatch(evidence: evidence, barcodePayloads: payloads, rawText: lines.joined(separator: "\n"), barcodeBoxes: barcodeBoxes)
@@ -147,7 +200,9 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
   private func compactGroups(_ evidence: [VisionEvidence]) -> [VisionGroup] {
     var groups: [VisionGroup] = []
     for item in evidence.sorted(by: { $0.topY == $1.topY ? $0.x < $1.x : $0.topY < $1.topY }) {
-      if let index = groups.firstIndex(where: { abs($0.x - item.x) < 0.14 && abs($0.topY - item.topY) < 0.14 }) {
+      if let index = groups.firstIndex(where: { group in
+        group.evidence.contains { sameLabel($0.box, item.box) }
+      }) {
         groups[index].evidence.append(item)
         groups[index].x = (groups[index].x + item.x) / 2
         groups[index].topY = (groups[index].topY + item.topY) / 2
@@ -161,11 +216,14 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
   private func dynamicPositions(_ groups: [VisionGroup]) -> [String] {
     guard groups.count > 1 else { return groups.isEmpty ? [] : ["P1"] }
     let sorted = groups.sorted { $0.topY == $1.topY ? $0.x < $1.x : $0.topY < $1.topY }
+    let heights = groups.flatMap { $0.evidence.map { $0.box.height } }.sorted()
+    let medianHeight = heights.isEmpty ? 0.04 : heights[heights.count / 2]
+    let rowTolerance = max(0.025, min(0.065, medianHeight * 1.35))
     var rows: [[VisionGroup]] = []
     for group in sorted {
       if let lastIndex = rows.indices.last {
         let rowY = rows[lastIndex].map(\.topY).reduce(0, +) / CGFloat(rows[lastIndex].count)
-        if abs(rowY - group.topY) < 0.10 {
+        if abs(rowY - group.topY) < rowTolerance {
           rows[lastIndex].append(group)
           continue
         }
@@ -258,17 +316,51 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
   private func best(_ candidates: [VisionEvidence], value: String) -> Float { candidates.filter { $0.value == value }.map(\.confidence).max() ?? 0 }
   private func evidenceBoxes(_ evidence: [VisionEvidence]) -> [[String: Any]] { evidence.map { boxMap($0.box) } }
   private func boxMap(_ box: CGRect) -> [String: Any] { ["x": Double(box.origin.x), "y": Double(box.origin.y), "width": Double(box.width), "height": Double(box.height)] }
-  private func mappedPoint(_ boundingBox: CGRect, rotated: Bool) -> (x: CGFloat, y: CGFloat) {
-    let x = boundingBox.midX
-    let topY = 1 - boundingBox.midY
-    return rotated ? (1 - x, 1 - topY) : (x, topY)
+  private func sameLabel(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+    let horizontalOverlap = min(lhs.maxX, rhs.maxX) - max(lhs.minX, rhs.minX)
+    let minimumWidth = max(0.001, min(lhs.width, rhs.width))
+    guard horizontalOverlap / minimumWidth > 0.25 else { return false }
+    let verticalGap = max(0, max(lhs.minY, rhs.minY) - min(lhs.maxY, rhs.maxY))
+    return verticalGap <= max(lhs.height, rhs.height) * 0.9
   }
 
-  private func mappedRect(_ boundingBox: CGRect, rotated: Bool) -> CGRect {
+  private func mappedPoint(_ boundingBox: CGRect, rotated: Bool, crop: CGRect, canvasSize: CGSize) -> (x: CGFloat, y: CGFloat) {
+    let mapped = mappedRect(boundingBox, rotated: rotated, crop: crop, canvasSize: canvasSize)
+    return (mapped.midX, mapped.midY)
+  }
+
+  private func mappedRect(_ boundingBox: CGRect, rotated: Bool, crop: CGRect, canvasSize: CGSize) -> CGRect {
+    let x = (crop.minX + boundingBox.minX * crop.width) / canvasSize.width
+    // CGImage crops use a top-left pixel origin while Vision boxes use a
+    // bottom-left normalized origin. Convert the tile's bottom edge before
+    // mapping the observation back to the complete image.
+    let cropBottom = canvasSize.height - crop.maxY
+    let yFromBottom = (cropBottom + boundingBox.minY * crop.height) / canvasSize.height
+    let width = boundingBox.width * crop.width / canvasSize.width
+    let height = boundingBox.height * crop.height / canvasSize.height
+    let topOrigin = 1 - yFromBottom - height
     if rotated {
-      return CGRect(x: 1 - boundingBox.maxX, y: boundingBox.minY, width: boundingBox.width, height: boundingBox.height)
+      return CGRect(x: 1 - x - width, y: 1 - topOrigin - height, width: width, height: height)
     }
-    return CGRect(x: boundingBox.minX, y: 1 - boundingBox.maxY, width: boundingBox.width, height: boundingBox.height)
+    return CGRect(x: x, y: topOrigin, width: width, height: height)
+  }
+
+  private func uniqueBoxes(_ boxes: [CGRect]) -> [CGRect] {
+    var result: [CGRect] = []
+    for box in boxes where !result.contains(where: { $0.insetBy(dx: -0.015, dy: -0.015).intersects(box) }) {
+      result.append(box)
+    }
+    return result
+  }
+
+  private func enhancedImage(_ image: CGImage) -> CGImage? {
+    let source = CIImage(cgImage: image)
+    let enhanced = source.applyingFilter("CIColorControls", parameters: [
+      kCIInputSaturationKey: 0.0,
+      kCIInputContrastKey: 1.35,
+      kCIInputBrightnessKey: 0.0,
+    ])
+    return CIContext().createCGImage(enhanced, from: enhanced.extent)
   }
 
   private func normalizedImage(_ image: UIImage) -> CGImage? {

@@ -8,6 +8,7 @@ MultiScan is a high-reliability 3×5 tray scanner for device IMEIs. The reposito
 - Barcode/OCR evidence fusion with explicit `accepted`, `review`, and `retake` outcomes.
 - Fixed `R1C1`–`R3C5` tray positions, duplicate detection, and idempotent device records.
 - FastAPI-compatible `/v1/scan-batches` endpoint (FastAPI is an optional runtime dependency).
+- Vercel dashboard supports local high-resolution barcode-sheet processing alongside live phone sessions.
 - Flutter data models, review-oriented tray screen, local scan repository contract, and sync contract.
 
 The barcode and OCR adapters are intentionally injected behind interfaces. Real device/image providers should be connected after representative label photos establish the exact barcode symbology and OCR thresholds. The API never silently accepts conflicting evidence.

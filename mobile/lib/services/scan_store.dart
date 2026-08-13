@@ -134,4 +134,10 @@ class ScanStore {
     }
     return summaries;
   }
+
+  Future<int> loadTotalAccepted() async {
+    final db = await database;
+    final result = await db.rawQuery('SELECT COUNT(*) AS total FROM scan_cells WHERE status = ?', [VisionCellStatus.accepted.name]);
+    return (result.first['total'] as num?)?.toInt() ?? 0;
+  }
 }

@@ -21,6 +21,7 @@ class DashboardCell:
 class DashboardSession:
     code: str
     created_at: str
+    ended_at: str | None = None
     batches: list[dict[str, Any]] = field(default_factory=list)
     imeis: list[dict[str, Any]] = field(default_factory=list)
     seen_batch_ids: set[str] = field(default_factory=set)
@@ -29,6 +30,8 @@ class DashboardSession:
         return {
             "session_code": self.code,
             "created_at": self.created_at,
+            "ended_at": self.ended_at,
+            "ended": self.ended_at is not None,
             "batch_count": len(self.batches),
             "device_count": len(self.imeis),
             "imeis": list(self.imeis),
@@ -58,6 +61,8 @@ class SessionStore:
 
     def add_batch(self, session: DashboardSession, batch_id: str, tray_number: int, cells: list[DashboardCell]) -> bool:
         with self._lock:
+            if session.ended_at is not None:
+                raise ValueError("Session has ended")
             if batch_id in session.seen_batch_ids:
                 return False
             session.seen_batch_ids.add(batch_id)
@@ -81,3 +86,10 @@ class SessionStore:
                     "created_at": created_at,
                 })
             return True
+
+    def end(self, code: str) -> DashboardSession | None:
+        with self._lock:
+            session = self._sessions.get(code.upper())
+            if session is not None and session.ended_at is None:
+                session.ended_at = datetime.now(timezone.utc).isoformat()
+            return session
