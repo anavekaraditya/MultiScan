@@ -8,6 +8,7 @@ from uuid import uuid4
 try:
     from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, RedirectResponse
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
 except ImportError:  # Keeps the domain usable before optional API dependencies are installed.
     FastAPI = None
@@ -70,6 +71,8 @@ if FastAPI:
     app = FastAPI(title="MultiScan API", version="0.1.0")
     sessions = SessionStore()
     dashboard_path = Path(__file__).with_name("dashboard.html")
+    assets_path = Path(__file__).with_name("assets")
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
     @app.get("/", include_in_schema=False)
     def root() -> RedirectResponse:

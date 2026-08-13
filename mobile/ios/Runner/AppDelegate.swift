@@ -2,6 +2,7 @@ import Flutter
 import CoreImage
 import UIKit
 import Vision
+import VisionKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -51,6 +52,17 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
   }
 
   func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    if call.method == "startLiveScan" {
+      guard #available(iOS 16.0, *) else {
+        result(FlutterError(code: "UNSUPPORTED", message: "Live scanning requires iOS 16 or later.", details: nil))
+        return
+      }
+      let arguments = call.arguments as? [String: Any]
+      let rows = max(1, (arguments?["rows"] as? Int) ?? 4)
+      let columns = max(1, (arguments?["columns"] as? Int) ?? 16)
+      Task { @MainActor in self.presentLiveScanner(rows: rows, columns: columns, result: result) }
+      return
+    }
     guard call.method == "analyzeTray" else {
       result(FlutterMethodNotImplemented)
       return
@@ -379,7 +391,294 @@ final class VisionScannerPlugin: NSObject, FlutterPlugin {
     }
     return rotated.cgImage
   }
+
+  @MainActor
+  @available(iOS 16.0, *)
+  private func presentLiveScanner(rows: Int, columns: Int, result: @escaping FlutterResult) {
+    guard DataScannerViewController.isSupported else {
+      result(FlutterError(code: "UNSUPPORTED", message: "This iPhone does not support live text scanning.", details: nil))
+      return
+    }
+    guard DataScannerViewController.isAvailable else {
+      result(FlutterError(code: "UNAVAILABLE", message: "Live scanning is unavailable. Check camera permission and device restrictions.", details: nil))
+      return
+    }
+    guard let presenter = topViewController() else {
+      result(FlutterError(code: "PRESENTER_UNAVAILABLE", message: "Could not open the live scanner.", details: nil))
+      return
+    }
+    let scanner = LiveVisionScannerViewController(rows: rows, columns: columns, completion: result)
+    presenter.present(scanner, animated: true)
+  }
+
+  private func topViewController() -> UIViewController? {
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let window = scenes.flatMap(\.windows).first { $0.isKeyWindow }
+    var controller = window?.rootViewController
+    while let presented = controller?.presentedViewController { controller = presented }
+    return controller
+  }
 }
+
+@available(iOS 16.0, *)
+private final class LiveVisionScannerViewController: UIViewController, DataScannerViewControllerDelegate {
+  private let completion: FlutterResult
+  private let scanner: DataScannerViewController
+  private var observations: [String: LiveObservation] = [:]
+  private var finished = false
+  private let expectedRows: Int
+  private let expectedColumns: Int
+  private let progressLabel = UILabel()
+  private let detectedBadge = UILabel()
+  private let detectionOverlay = LiveDetectionOverlay()
+
+  init(rows: Int, columns: Int, completion: @escaping FlutterResult) {
+    self.expectedRows = rows
+    self.expectedColumns = columns
+    self.completion = completion
+    self.scanner = DataScannerViewController(
+      recognizedDataTypes: [.text(), .barcode()],
+      qualityLevel: .accurate,
+      recognizesMultipleItems: true,
+      isHighFrameRateTrackingEnabled: true,
+      isPinchToZoomEnabled: true,
+      isGuidanceEnabled: true,
+      isHighlightingEnabled: true
+    )
+    super.init(nibName: nil, bundle: nil)
+  }
+
+  required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = .black
+    scanner.delegate = self
+    addChild(scanner)
+    scanner.view.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(scanner.view)
+    NSLayoutConstraint.activate([
+      scanner.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      scanner.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      scanner.view.topAnchor.constraint(equalTo: view.topAnchor),
+      scanner.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+    ])
+    scanner.didMove(toParent: self)
+
+    detectionOverlay.translatesAutoresizingMaskIntoConstraints = false
+    detectionOverlay.backgroundColor = .clear
+    detectionOverlay.isOpaque = false
+    detectionOverlay.isUserInteractionEnabled = false
+    view.addSubview(detectionOverlay)
+    NSLayoutConstraint.activate([
+      detectionOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      detectionOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      detectionOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+      detectionOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+    ])
+
+    let done = UIButton(type: .system)
+    done.setTitle("Done", for: .normal)
+    done.setTitleColor(.white, for: .normal)
+    done.titleLabel?.font = .boldSystemFont(ofSize: 17)
+    done.backgroundColor = UIColor.black.withAlphaComponent(0.65)
+    done.layer.cornerRadius = 12
+    done.contentEdgeInsets = UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 18)
+    done.addTarget(self, action: #selector(finish), for: .touchUpInside)
+    done.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(done)
+    NSLayoutConstraint.activate([
+      done.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 14),
+      done.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18)
+    ])
+    progressLabel.text = "0 / \(expectedRows * expectedColumns) detected"
+    progressLabel.textColor = .white
+    progressLabel.font = .boldSystemFont(ofSize: 16)
+    progressLabel.textAlignment = .center
+    progressLabel.backgroundColor = UIColor.black.withAlphaComponent(0.65)
+    progressLabel.layer.cornerRadius = 12
+    progressLabel.clipsToBounds = true
+    progressLabel.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(progressLabel)
+    NSLayoutConstraint.activate([
+      progressLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      progressLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 14),
+      progressLabel.heightAnchor.constraint(equalToConstant: 42),
+      progressLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 210)
+    ])
+    detectedBadge.text = "  Waiting for codes…  "
+    detectedBadge.textColor = .white
+    detectedBadge.font = .boldSystemFont(ofSize: 14)
+    detectedBadge.textAlignment = .center
+    detectedBadge.backgroundColor = UIColor.black.withAlphaComponent(0.68)
+    detectedBadge.layer.cornerRadius = 14
+    detectedBadge.clipsToBounds = true
+    detectedBadge.translatesAutoresizingMaskIntoConstraints = false
+    view.addSubview(detectedBadge)
+    NSLayoutConstraint.activate([
+      detectedBadge.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      detectedBadge.topAnchor.constraint(equalTo: progressLabel.bottomAnchor, constant: 8),
+      detectedBadge.heightAnchor.constraint(equalToConstant: 34),
+      detectedBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 190)
+    ])
+  }
+
+  override func viewDidAppear(_ animated: Bool) {
+    super.viewDidAppear(animated)
+    do {
+      try scanner.startScanning()
+      detectedBadge.text = "  Capturing for 5 seconds…  "
+      DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+        self?.finish()
+      }
+    }
+    catch { fail(message: error.localizedDescription) }
+  }
+
+  func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) { record(allItems) }
+  func dataScanner(_ dataScanner: DataScannerViewController, didUpdate updatedItems: [RecognizedItem], allItems: [RecognizedItem]) { record(allItems) }
+  func dataScanner(_ dataScanner: DataScannerViewController, didRemove removedItems: [RecognizedItem], allItems: [RecognizedItem]) { record(allItems) }
+  func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) { fail(message: "Live scanner became unavailable.") }
+
+  private func record(_ items: [RecognizedItem]) {
+    for item in items {
+      let value: String?
+      switch item {
+      case .text(let text): value = normalizedCandidate(text.transcript)
+      case .barcode(let barcode): value = normalizedCandidate(barcode.payloadStringValue)
+      @unknown default: value = nil
+      }
+      guard let value else { continue }
+      let box = normalizedBox(item.bounds)
+      let confidence: Float = 0.95
+      if var existing = observations[value] {
+        existing.reads += 1
+        existing.confidence = max(existing.confidence, confidence)
+        existing.box = box
+        observations[value] = existing
+      } else {
+        observations[value] = LiveObservation(value: value, reads: 1, confidence: confidence, box: box)
+      }
+    }
+    let detected = min(observations.count, expectedRows * expectedColumns)
+    let stableDetected = min(observations.values.filter { $0.reads >= 3 }.count, expectedRows * expectedColumns)
+    progressLabel.text = "\(detected) / \(expectedRows * expectedColumns) detected"
+    detectedBadge.text = stableDetected == 0 ? "  Checking codes…  " : "  ✓ Confirmed · \(stableDetected)  ·  Hold steady  "
+    detectedBadge.backgroundColor = stableDetected == 0 ? UIColor.black.withAlphaComponent(0.68) : UIColor.systemGreen.withAlphaComponent(0.88)
+    detectionOverlay.update(observations.values)
+  }
+
+  private func normalizedCandidate(_ raw: String?) -> String? {
+    guard let raw else { return nil }
+    let digits = raw.replacingOccurrences(of: "[Oo]", with: "0", options: .regularExpression)
+      .replacingOccurrences(of: "[Il]", with: "1", options: .regularExpression)
+      .filter { $0.isNumber }
+    guard digits.count == 15, isValidIMEI(digits) else { return nil }
+    return digits
+  }
+
+  private func isValidIMEI(_ value: String) -> Bool {
+    let digits = value.compactMap { Int(String($0)) }
+    guard digits.count == 15 else { return false }
+    let checksum = digits.enumerated().reduce(0) { total, pair in
+      let (index, digit) = pair
+      if index == 14 { return total }
+      let transformed = index.isMultiple(of: 2) ? digit : (digit * 2 > 9 ? digit * 2 - 9 : digit * 2)
+      return total + transformed
+    }
+    return (checksum + digits[14]) % 10 == 0
+  }
+
+  private func normalizedBox(_ bounds: RecognizedItem.Bounds) -> CGRect {
+    let width = max(view.bounds.width, 1)
+    let height = max(view.bounds.height, 1)
+    let points = [bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight]
+    let minX = points.map(\.x).min() ?? 0
+    let maxX = points.map(\.x).max() ?? 0
+    let minY = points.map(\.y).min() ?? 0
+    let maxY = points.map(\.y).max() ?? 0
+    return CGRect(x: minX / width, y: minY / height, width: max(0, maxX - minX) / width, height: max(0, maxY - minY) / height)
+  }
+
+  @objc private func finish() {
+    guard !finished else { return }
+    finished = true
+    scanner.stopScanning()
+    Task { @MainActor in
+      do {
+        let image = try await scanner.capturePhoto()
+        let path = NSTemporaryDirectory() + "multiscan-live-\(UUID().uuidString).jpg"
+        try image.jpegData(compressionQuality: 0.98)?.write(to: URL(fileURLWithPath: path))
+        complete(imagePath: path)
+      } catch {
+        complete(imagePath: "")
+      }
+    }
+  }
+
+  private func complete(imagePath: String) {
+    let stableObservations = observations.values.filter { $0.reads >= 3 }
+    // Use spatial ordering rather than direct box-to-cell quantization. The
+    // latter can put two nearby boxes into one cell because VisionKit boxes
+    // include the printed text and barcode with slightly different bounds.
+    let ordered = stableObservations.sorted { $0.box.midY == $1.box.midY ? $0.box.midX < $1.box.midX : $0.box.midY < $1.box.midY }
+    var cells: [[String: Any]] = []
+    for row in 0..<expectedRows {
+      for column in 0..<expectedColumns {
+        let position = "R\(row + 1)C\(column + 1)"
+        let index = row * expectedColumns + column
+        let selected = index < ordered.count ? ordered[index] : nil
+        let status = selected == nil ? "retake" : "accepted"
+        let reason = selected == nil ? "No confirmed 15-digit value detected" : "Stable, unique IMEI confirmed across live frames"
+        var cell: [String: Any] = ["position": position, "status": status, "source": "visionkit-live", "confidence": Double(selected?.confidence ?? 0), "reason": reason, "boxes": selected.map { [["x": $0.box.minX, "y": $0.box.minY, "width": $0.box.width, "height": $0.box.height]] } ?? []]
+        if let selected { cell["imei"] = selected.value }
+        cells.append(cell)
+      }
+    }
+    dismiss(animated: true) { self.completion(["cells": cells, "barcodeValues": [], "rawText": ordered.map(\.value).joined(separator: "\n"), "rawBarcodeCount": 0, "uniqueBarcodeCount": stableObservations.count, "groupCount": cells.count, "processingVersion": "ios-visionkit-live-v3", "imagePath": imagePath]) }
+  }
+
+  private func fail(message: String) { guard !finished else { return }; finished = true; dismiss(animated: true) { self.completion(FlutterError(code: "LIVE_SCAN_ERROR", message: message, details: nil)) } }
+}
+
+@available(iOS 16.0, *)
+private final class LiveDetectionOverlay: UIView {
+  private var observations: [LiveObservation] = []
+
+  func update(_ observations: Dictionary<String, LiveObservation>.Values) {
+    self.observations = Array(observations)
+    setNeedsDisplay()
+  }
+
+  override func draw(_ rect: CGRect) {
+    guard let context = UIGraphicsGetCurrentContext() else { return }
+    for observation in observations {
+      let box = CGRect(
+        x: observation.box.minX * bounds.width,
+        y: observation.box.minY * bounds.height,
+        width: observation.box.width * bounds.width,
+        height: observation.box.height * bounds.height
+      ).insetBy(dx: -5, dy: -5)
+      let confirmed = observation.reads >= 3
+      let color = confirmed ? UIColor.systemGreen : UIColor.systemYellow
+      context.setStrokeColor(color.cgColor)
+      context.setLineWidth(3)
+      context.stroke(box)
+
+      let label = confirmed ? "✓ \(observation.value)" : "… \(observation.value)"
+      let attributes: [NSAttributedString.Key: Any] = [
+        .font: UIFont.boldSystemFont(ofSize: 12),
+        .foregroundColor: UIColor.black,
+        .backgroundColor: color
+      ]
+      let labelRect = CGRect(x: box.minX, y: max(0, box.minY - 20), width: min(bounds.width - box.minX, 150), height: 18)
+      (label as NSString).draw(in: labelRect, withAttributes: attributes)
+    }
+  }
+}
+
+@available(iOS 16.0, *)
+private struct LiveObservation { let value: String; var reads: Int; var confidence: Float; var box: CGRect }
 
 private extension UIImage.Orientation {
   var exifOrientation: Int32 {

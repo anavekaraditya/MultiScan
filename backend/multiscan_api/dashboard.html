@@ -11,8 +11,19 @@
     h1 { margin: 0 0 8px; font-size: 32px; } h2 { margin: 0; font-size: 20px; }
     p { color: #64707d; } button, .button { border: 0; border-radius: 10px; padding: 12px 16px; background: #246da0; color: white; font-weight: 700; cursor: pointer; font: inherit; }
     button:disabled { opacity: .48; cursor: not-allowed; } button.secondary, .button.secondary { background: #e7eef3; color: #246da0; }
-    .card { background: white; border: 1px solid #e3e9ee; border-radius: 16px; padding: 20px; margin-top: 18px; box-shadow: 0 8px 24px #1d34420d; }
+    .card { background: white; border: 1px solid #e3e9ee; border-radius: 14px; padding: 20px; margin-top: 16px; box-shadow: 0 5px 16px #1d34420a; }
     .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .spacer { flex: 1; }
+    .brand { display: flex; align-items: center; gap: 10px; } .brand img { width: 48px; height: 48px; object-fit: contain; } .brand h1 { margin: 0; }
+    .start-shell { max-width: 819px; margin: 48px auto 0; text-align: center; }
+    .start-shell h2 { font-size: 30px; margin: 0 0 8px; letter-spacing: -.02em; } .start-shell > p { margin: 0 0 18px; }
+    .session-start-card { padding: 24px 48px 28px; border: 1px dashed #18242c; box-shadow: none; }
+    .session-start-card img { display: block; width: min(100%, 722px); height: 396px; object-fit: contain; margin: 0 auto 22px; }
+    .session-start-card button { min-width: 149px; }
+    .how-it-works { max-width: 819px; margin: 34px auto 0; padding: 20px 22px; background: #f7f9fd; border: 2px solid #287dc6; border-radius: 10px; }
+    .how-it-works h3 { margin: 0 0 16px; font-size: 18px; } .how-it-works ol { margin: 0; padding-left: 24px; line-height: 1.65; }
+    .session-hero { display: grid; grid-template-columns: minmax(0, 1fr) 247px; gap: 20px; align-items: center; min-height: 315px; }
+    .session-hero h2 { margin: 0 0 24px; font-size: 22px; } .session-code-row { display: flex; align-items: baseline; gap: 22px; margin-bottom: 28px; } .session-code-row .muted { font-size: 18px; color: #17202a; } .session-code-row .code { font-size: 42px; }
+    .session-hero-art { width: 247px; height: 315px; object-fit: contain; border-radius: 12px; }
     .code { font-size: 30px; font-weight: 800; letter-spacing: 5px; color: #246da0; }
     .metric { display: inline-flex; flex-direction: column; min-width: 150px; padding: 14px; background: #e9f3f7; border-radius: 12px; }
     .metric strong { font-size: 28px; } .metric span { color: #64707d; font-size: 13px; }
@@ -43,24 +54,79 @@
     .status { display: inline-flex; justify-content: center; padding: 4px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
     .status.accepted { background: #dff0df; color: #196b3a; } .status.review { background: #fff2c8; color: #946e00; } .status.retake { background: #fde3e3; color: #a52d32; }
     .note { padding: 10px 12px; border-radius: 10px; background: #f7fafc; color: #586674; font-size: 13px; line-height: 1.45; }
-    @media (max-width: 760px) { body { padding: 22px 14px 40px; } .document-grid { grid-template-columns: 1fr; } .metric { min-width: 0; flex: 1; } .document-item { grid-template-columns: 66px minmax(0, 1fr); } .document-item .confidence { grid-column: 2; } }
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 18px; }
+    .flow-step { display: flex; align-items: center; gap: 9px; padding: 12px 13px; border-radius: 12px; background: #eef3f6; color: #6b7783; font-size: 13px; font-weight: 700; }
+    .flow-step span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #d7e1e7; color: #53616d; font-size: 12px; }
+    .flow-step.active { background: #e7f1f6; color: #1d5d83; } .flow-step.active span { background: #246da0; color: white; }
+    .flow-step.complete { color: #196b3a; background: #e8f3e9; } .flow-step.complete span { background: #2d9b5c; color: white; }
+    .activity-banner { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: #f8fafb; color: #53616d; font-size: 13px; }
+    .activity-dot { width: 9px; height: 9px; border-radius: 50%; background: #2d9b5c; box-shadow: 0 0 0 5px #dff0df; }
+    .activity-dot.waiting { background: #bd8c00; box-shadow: 0 0 0 5px #fff2c8; }
+    .processing-state { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-top: 16px; border-radius: 14px; background: #102b3b; color: #f4f8fa; overflow: hidden; }
+    .processing-state.hidden { display: none; }
+    .processing-orb { position: relative; flex: 0 0 42px; width: 42px; height: 42px; border: 3px solid #5ba3c8; border-top-color: #d4f1ff; border-radius: 50%; animation: spin 1s linear infinite; }
+    .processing-orb::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: #246da0; animation: breathe 1.5s ease-in-out infinite; }
+    .processing-copy { min-width: 0; } .processing-copy strong { display: block; font-size: 15px; } .processing-copy span { display: block; margin-top: 4px; color: #b9cbd5; font-size: 12px; }
+    .processing-track { height: 4px; margin-top: 10px; border-radius: 10px; background: #2b4858; overflow: hidden; } .processing-track i { display: block; width: 35%; height: 100%; border-radius: inherit; background: #70c69b; animation: scanTrack 1.4s ease-in-out infinite; }
+    .processing-steps { display: flex; gap: 6px; margin-top: 12px; } .processing-steps span { padding: 4px 7px; border-radius: 99px; background: #e7eef3; color: #64707d; font-size: 11px; } .processing-steps span.active { background: #dff0df; color: #196b3a; }
+    .preview-wrap.processing { position: relative; }
+    .preview-wrap.processing::before { content: ''; position: absolute; z-index: 4; left: 8px; right: 8px; top: 8px; height: 3px; border-radius: 4px; background: #66e39a; box-shadow: 0 0 8px 2px #66e39a, 0 0 22px 5px #2d9b5c99; animation: scanImage 2.2s ease-in-out infinite; pointer-events: none; }
+    .preview-wrap.processing::after { content: 'SCANNING IMAGE'; position: absolute; z-index: 5; top: 17px; right: 18px; padding: 5px 7px; border-radius: 5px; background: #102b3bd9; color: #baf3cf; font-size: 10px; font-weight: 800; letter-spacing: .08em; pointer-events: none; }
+    @keyframes spin { to { transform: rotate(360deg); } } @keyframes breathe { 50% { transform: scale(.65); opacity: .65; } } @keyframes scanTrack { 0% { transform: translateX(-140%); } 100% { transform: translateX(390%); } } @keyframes scanImage { 0%, 8% { transform: translateY(0); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 92%, 100% { transform: translateY(calc(100% - 19px)); opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { .processing-orb, .processing-orb::after, .processing-track i, .preview-wrap.processing::before { animation: none; } .preview-wrap.processing::before { top: 50%; opacity: 1; } }
+    @media (max-width: 760px) { body { padding: 22px 14px 40px; } .document-grid { grid-template-columns: 1fr; } .metric { min-width: 0; flex: 1; } .document-item { grid-template-columns: 66px minmax(0, 1fr); } .document-item .confidence { grid-column: 2; } .flow { grid-template-columns: repeat(2, 1fr); } .session-start-card { padding: 18px; } .session-start-card img { height: auto; } .start-shell { margin-top: 28px; } .session-hero { grid-template-columns: 1fr; } .session-hero-art { justify-self: center; width: 180px; height: 220px; } .session-code-row { gap: 10px; flex-wrap: wrap; } }
+    /* Figma frames 88:42 and 89:112 — exact desktop composition, responsive below. */
+    :root { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; color: #000; background: #fff; }
+    body { max-width: none; width: 100%; min-height: 100vh; margin: 0; padding: 0 0 40px; background: #fff; }
+    body > .row:first-child { width: calc(100% - 54px); height: 69px; margin: 21px 27px 0; flex-wrap: nowrap; }
+    .brand { gap: 10px; } .brand img { width: 69px; height: 69px; } .brand h1 { font-size: 32px; line-height: 1; font-weight: 600; letter-spacing: -.8px; }
+    body > .row:first-child > .muted { color: #000; font-size: 16px; }
+    #start.card { margin: 18px 0 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+    .start-shell { width: 819px; max-width: calc(100% - 40px); margin: 18px auto 0; }
+    .start-shell h2 { font-size: 32px; line-height: 1.2; font-weight: 600; letter-spacing: 0; margin: 0 0 6px; }
+    .start-shell > p { margin: 0 0 14px; color: #000; font-size: 16px; line-height: 1.5; }
+    .session-start-card { width: 819px; max-width: 100%; height: 512px; margin-top: 24px; padding: 25px 48px; background: #f8f8f8; border: 1px dashed #111; border-radius: 8px; }
+    .session-start-card img { width: 722px; max-width: 100%; height: 396px; margin: 0 auto 8px; object-fit: contain; }
+    button, .button { border-radius: 11px; padding: 8px 24px; min-height: 58px; background: #037ac3; font-size: 16px; font-weight: 600; }
+    .session-start-card button { min-width: 149px; }
+    .how-it-works { width: 819px; max-width: 100%; height: 212px; margin: 37px auto 0; padding: 24px; background: #f9faff; border: 2px solid #037ac3; border-radius: 8px; box-shadow: 0 1px 8px rgba(121,121,121,.1); text-align: left; }
+    .how-it-works h3 { margin: 0 0 16px; font-size: 20px; line-height: 1.2; font-weight: 600; } .how-it-works ol { margin: 0; padding-left: 22px; font-size: 20px; line-height: 1.3; }
+    #session { width: 819px; max-width: calc(100% - 40px); margin: 14px auto 0; }
+    #session > .card { border: 0; border-radius: 8px; box-shadow: 0 1px 8px rgba(121,121,121,.1); margin: 0 0 24px; }
+    #sessionHeroCard { height: 212px; padding: 0; overflow: hidden; background: #fff; }
+    #sessionHeroCard .session-hero { height: 212px; min-height: 0; display: block; position: relative; padding: 19px 22px; }
+    #sessionHeroCard .session-hero h2 { margin: 0; font-size: 20px; font-weight: 600; }
+    #sessionHeroCard .session-code-row { display: block; margin: 44px 0 0; } #sessionHeroCard .session-code-row .muted { display: inline; font-size: 20px; color: #000; }
+    #sessionHeroCard .code { display: inline; margin-left: 10px; font-size: 32px; font-weight: 700; letter-spacing: 13.76px; }
+    #sessionHeroCard #endButton { position: absolute; left: 22px; top: 143px; background: transparent; color: #eb5b5b; }
+    #sessionHeroCard .session-hero-art { position: absolute; top: 0; right: 0; width: 247px; height: 315px; object-fit: cover; border-radius: 0; }
+    .session-hero-secondary, .flow, #activityBanner, #metricsCard { display: none !important; }
+    #documentCard { min-height: 97px; padding: 19px 17px; background: #f6f9fb; } #documentCard > .row { min-height: 58px; justify-content: space-between; gap: 20px; } #documentCard h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; } #documentCard .muted { color: #000; font-size: 16px; } #documentCard > .row > .spacer { display: none; }
+    #documentCard .file-input { min-width: 154px; justify-content: center; background: #037ac3; color: #fff; } #documentCard > .note, #documentCard > #documentStatus { display: none; } #documentPanel { margin-top: 18px; }
+    #imeiListCard { padding: 24px; background: #f8f8f8; } #imeiListCard > .row { height: 42px; align-items: center; } #imeiListCard > .row > strong { font-size: 20px; font-weight: 600; }
+    #imeiListCard > .row > button { min-height: 58px; background: transparent; color: #037ac3; } #imeiListCard > .row > .clear-button { color: #eb5b5b; } #imeiListCard > p { margin: 15px 0; color: #000; font-size: 14px; }
+    .list-metrics { display: flex; gap: 15px; margin: 0 0 15px; } .list-metrics .metric { min-width: max-content; width: max-content; height: 97px; padding: 8px 24px; justify-content: center; background: #cbeafd; border-radius: 11px; flex: 0 0 auto; } .list-metrics .metric strong { color: #373737; font-size: 36px; font-weight: 600; } .list-metrics .metric span { color: #484848; font-size: 16px; white-space: nowrap; }
+    #imeiListCard textarea { height: 312px; min-height: 312px; border: 0; border-radius: 8px; background: #fff; font-size: 14px; font-weight: 600; } #imeiListCard table { margin-top: 15px; background: #fff; border-radius: 8px; overflow: hidden; } #imeiListCard th { color: #000; font-size: 14px; text-transform: none; letter-spacing: 0; font-weight: 500; border-bottom-color: #d3d3d3; } #imeiListCard td { font-size: 14px; }
+    @media (max-width: 900px) { body > .row:first-child { margin-left: 20px; width: calc(100% - 40px); } #session { max-width: calc(100% - 28px); } .start-shell { max-width: calc(100% - 28px); } #documentCard > .row { align-items: flex-start; } }
   </style>
 </head>
 <body>
-  <h1>MultiScan</h1>
-  <p>Live phone scans and local document scans in one temporary session. Nothing is permanently saved by this deployment.</p>
+  <div class="row"><div class="brand"><img src="/assets/figma-phone-connect.png" alt="" /><h1>MultiScan</h1></div><div class="spacer"></div><span class="muted">IMEI capture workspace</span></div>
   <section id="start" class="card">
-    <div class="row"><div><strong>Start a laptop session</strong><div class="muted">Join this session from the iPhone scanner or scan a sheet here.</div></div><div class="spacer"></div><button onclick="createSession()">New session</button></div>
+    <div class="start-shell"><h2>Start a new session</h2><p>Connect your phone to this dashboard and scan device trays. Your IMEIs will appear here as they are captured.</p><div class="session-start-card"><img src="/assets/session-start.png" alt="Phone scanning devices and sending results to a laptop" /><button onclick="createSession()">Start session</button></div><div class="how-it-works"><h3>How it works</h3><ol><li>Start a session here.</li><li>Enter the session code on your phone.</li><li>Scan the tray using MultiScan.</li><li>Review and copy the IMEIs here.</li></ol></div></div>
     <p id="startError" class="error"></p>
   </section>
   <section id="session" class="hidden">
-    <div class="card"><div class="row"><div><div class="muted">Session code</div><div id="code" class="code"></div></div><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button class="secondary" id="endButton" onclick="endSession()">End session</button><button onclick="newSession()">New session</button></div><p id="sessionHint" class="muted">On the iPhone, enter this code and this hosted URL.</p></div>
-    <div class="card"><div class="row"><div class="metric"><strong id="deviceCount">0</strong><span>accepted IMEIs</span></div><div class="metric"><strong id="batchCount">0</strong><span>scan batches</span></div><div class="spacer"></div><span id="connection" class="muted">Connecting…</span></div></div>
-    <div class="card">
-      <div class="row"><div><h2>Scan a barcode sheet</h2><div class="muted">Process a high-resolution JPG, PNG, or WebP locally in this browser.</div></div><div class="spacer"></div><label class="button file-input">Choose image<input id="documentInput" type="file" accept="image/jpeg,image/png,image/webp" /></label></div>
-      <p class="note">For best accuracy, use the original scanner file at 300–600 DPI. The image stays on this laptop; only accepted, validated results are appended to the session. For a large sheet, choose its exact layout before uploading.</p>
+    <div id="sessionHeroCard" class="card"><div class="session-hero"><div><h2>Your session is active</h2><div class="session-code-row"><span class="muted">Here is your session code:</span><div id="code" class="code"></div></div><button class="secondary" id="endButton" onclick="endSession()">End session</button></div><img class="session-hero-art" src="/assets/session-code-phone.png" alt="Phone screen showing where to enter the session code" /></div><div class="row session-hero-secondary" style="margin-top:16px"><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button onclick="newSession()">New session</button></div></div>
+    <div class="flow" aria-label="Session progress"><div id="flowConnect" class="flow-step active"><span>1</span>Connect</div><div id="flowScan" class="flow-step"><span>2</span>Scan</div><div id="flowReview" class="flow-step"><span>3</span>Verify</div><div id="flowExport" class="flow-step"><span>4</span>Export</div></div>
+    <div id="activityBanner" class="activity-banner"><i class="activity-dot waiting"></i><span>Waiting for the first scan.</span></div>
+    <div id="metricsCard" class="hidden" aria-hidden="true"><span id="connection">Connecting…</span></div>
+    <div id="documentCard" class="card">
+      <div class="row"><div><h2>Scan a barcode sheet</h2><div class="muted">Upload an image to scan all the IMEIs from the sheet at once.</div></div><div class="spacer"></div><label class="button file-input">Upload image<input id="documentInput" type="file" accept="image/jpeg,image/png,image/webp" /></label></div>
+      <p class="note">Use the original high-resolution scan. Results stay on this laptop until you append them.</p>
       <p id="documentStatus" class="muted">No document selected.</p>
       <div id="documentPanel" class="hidden">
+        <div id="processingState" class="processing-state hidden" role="status" aria-live="polite"><div class="processing-orb" aria-hidden="true"></div><div class="processing-copy"><strong id="processingTitle">Preparing your scan</strong><span id="processingDetail">Preparing the uploaded image.</span><div class="processing-track"><i></i></div><div class="processing-steps"><span id="processingStep1">Prepare</span><span id="processingStep2">Read codes</span><span id="processingStep3">Verify</span><span id="processingStep4">Ready</span></div></div></div>
         <div class="document-controls row">
           <label>Tray/sheet # <input id="documentTrayNumber" type="number" min="1" step="1" value="1" /></label>
           <label>Sheet layout <select id="documentLayout"><option value="auto">Auto</option><option value="64x4x16">64 · 4×16</option><option value="64x8x8">64 · 8×8</option><option value="128x4x32">128 · 4×32</option><option value="128x8x16">128 · 8×16</option><option value="custom">Custom</option></select></label>
@@ -75,7 +141,7 @@
         </div>
       </div>
     </div>
-    <div class="card"><div class="row"><strong>IMEI list</strong><div class="spacer"></div><span class="muted">Phone and document results appear here; duplicates are preserved.</span></div><textarea id="imeiText" readonly></textarea><table><thead><tr><th>IMEI</th><th>Tray</th><th>Position</th><th>Source</th></tr></thead><tbody id="rows"></tbody></table></div>
+    <div id="imeiListCard" class="card"><div class="row"><strong>IMEI code list</strong><div class="spacer"></div><button class="secondary" onclick="copyImeis()">Copy IMEIs</button><button class="secondary clear-button" onclick="clearList()">Clear list</button></div><p class="muted">Phone and document results appear here; duplicates are preserved.</p><div class="list-metrics"><div class="metric"><strong id="deviceCount">0</strong><span>IMEIs scanned</span></div><div class="metric"><strong id="batchCount">0</strong><span>Scan Batches</span></div></div><textarea id="imeiText" readonly></textarea><table><thead><tr><th>IMEI</th><th>Tray</th><th>Position</th><th>Source</th></tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 <script>
 let sessionCode = new URLSearchParams(location.search).get('session');
@@ -85,16 +151,22 @@ let documentRun = null;
 let documentObjectUrl = null;
 let documentBusy = false;
 let documentFile = null;
+let processingTimer = null;
+let processingStartedAt = 0;
+let listCleared = false;
+let lastListSignature = '';
 const scriptPromises = {};
 
 function showSession() { document.getElementById('start').classList.add('hidden'); document.getElementById('session').classList.remove('hidden'); document.getElementById('code').textContent = sessionCode; }
 async function createSession() { const response = await fetch('/v1/sessions', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); const data = await response.json(); sessionCode = data.session_code; history.replaceState({}, '', '?session=' + sessionCode); showSession(); await refresh(); startPolling(); }
 function newSession() { sessionCode = null; state = null; documentRun = null; if (poller) clearInterval(poller); document.getElementById('session').classList.add('hidden'); document.getElementById('start').classList.remove('hidden'); }
 async function refresh() { if (!sessionCode) return; const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode)); if (!response.ok) { document.getElementById('connection').textContent = 'Session unavailable'; return; } state = await response.json(); render(); document.getElementById('connection').textContent = 'Connected · refreshing automatically'; }
-function render() { document.getElementById('deviceCount').textContent = state.device_count; document.getElementById('batchCount').textContent = state.batch_count; document.getElementById('imeiText').value = state.imeis.map(x => x.imei).join('\n'); document.getElementById('rows').innerHTML = state.imeis.map(x => `<tr><td>${escapeHtml(x.imei)}</td><td>${escapeHtml(x.tray_number)}</td><td>${escapeHtml(x.position)}</td><td>${escapeHtml(x.source)}</td></tr>`).join(''); document.getElementById('endButton').disabled = state.ended; document.getElementById('endButton').textContent = state.ended ? 'Session ended' : 'End session'; document.getElementById('sessionHint').textContent = state.ended ? 'This session is closed. Start a new session to scan more devices.' : 'On the iPhone, enter this code and this hosted URL.'; if (documentRun) renderDocumentState(); }
-async function endSession() { if (!sessionCode || state?.ended) return; if (!confirm('End this scanning session? The phone will no longer be able to add scans.')) return; const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode) + '/end', {method:'POST'}); if (response.ok) { await refresh(); } }
+function render() { const signature = state.imeis.map(item => item.imei + '|' + item.tray_number + '|' + item.position + '|' + item.source).join('\n') + '::' + state.batch_count; if (lastListSignature && signature !== lastListSignature) listCleared = false; lastListSignature = signature; document.getElementById('deviceCount').textContent = state.device_count; document.getElementById('batchCount').textContent = state.batch_count; if (!listCleared) { document.getElementById('imeiText').value = state.imeis.map(x => x.imei).join('\n'); document.getElementById('rows').innerHTML = state.imeis.map(x => `<tr><td>${escapeHtml(x.imei)}</td><td>${escapeHtml(x.tray_number)}</td><td>${escapeHtml(x.position)}</td><td>${escapeHtml(x.source)}</td></tr>`).join(''); } document.getElementById('endButton').disabled = state.ended; document.getElementById('endButton').textContent = state.ended ? 'Session ended' : 'End session'; renderFlow(); if (documentRun) renderDocumentState(); }
+function renderFlow() { const hasBatch = state.batch_count > 0; const hasResults = state.device_count > 0; const steps = [['flowConnect', true, !hasBatch], ['flowScan', hasBatch, !hasBatch], ['flowReview', hasResults, hasBatch && !state.ended], ['flowExport', state.ended, false]]; steps.forEach(([id, complete, active]) => { const element = document.getElementById(id); element.classList.toggle('complete', complete); element.classList.toggle('active', active); }); const banner = document.getElementById('activityBanner'); const dot = banner.querySelector('.activity-dot'); const text = banner.querySelector('span'); dot.classList.toggle('waiting', !hasBatch && !state.ended); if (state.ended) text.textContent = `Complete · ${state.device_count} IMEIs ready`; else if (hasBatch) text.textContent = `${state.device_count} IMEIs received · Review below`; else text.textContent = 'Ready for a phone scan or sheet upload'; }
+async function endSession() { if (!sessionCode || state?.ended) return; if (!confirm('End this scanning session? The phone will no longer be able to add scans.')) return; const response = await fetch('/v1/sessions/' + encodeURIComponent(sessionCode) + '/end', {method:'POST'}); if (response.ok) { await refresh(); newSession(); } }
 function startPolling() { if (poller) clearInterval(poller); poller = setInterval(refresh, 2000); }
 async function copyImeis() { await navigator.clipboard.writeText(document.getElementById('imeiText').value); }
+function clearList() { listCleared = true; document.getElementById('imeiText').value = ''; document.getElementById('rows').innerHTML = ''; }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character])); }
 function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
 function requestedGrid() { const rows = Number(document.getElementById('documentRows').value) || 0; const columns = Number(document.getElementById('documentColumns').value) || 0; if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || columns < 1) return null; return {rows: clamp(rows, 1, 64), cols: clamp(columns, 1, 32)}; }
@@ -105,6 +177,7 @@ function documentCandidateFromText(raw) { const text = String(raw || '').replace
 function documentCandidatesFromText(raw) { const values = new Set(); String(raw || '').split(/[\n,;|]+/).forEach(part => { const value = documentCandidateFromText(part); if (value) values.add(value); }); return [...values]; }
 function loadScript(url, globalName) { if (window[globalName]) return Promise.resolve(window[globalName]); if (scriptPromises[url]) return scriptPromises[url]; scriptPromises[url] = new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = url; script.async = true; script.crossOrigin = 'anonymous'; script.onload = () => window[globalName] ? resolve(window[globalName]) : reject(new Error(globalName + ' did not load')); script.onerror = () => reject(new Error('Could not load ' + globalName)); document.head.appendChild(script); }); return scriptPromises[url]; }
 function setDocumentStatus(message, kind = 'muted') { const element = document.getElementById('documentStatus'); element.textContent = message; element.className = kind === 'error' ? 'error' : 'muted'; }
+function setProcessingState(active, title = '', detail = '', step = 1) { const panel = document.getElementById('processingState'); const preview = document.querySelector('.preview-wrap'); if (!active) { panel.classList.add('hidden'); preview?.classList.remove('processing'); if (processingTimer) clearInterval(processingTimer); processingTimer = null; return; } panel.classList.remove('hidden'); preview?.classList.add('processing'); document.getElementById('processingTitle').textContent = title; document.getElementById('processingDetail').textContent = detail; for (let index = 1; index <= 4; index += 1) document.getElementById('processingStep' + index).classList.toggle('active', index === step); if (!processingTimer) { processingStartedAt = Date.now(); processingTimer = setInterval(() => { const elapsed = Math.round((Date.now() - processingStartedAt) / 1000); document.getElementById('processingDetail').textContent = detail + ' · ' + elapsed + 's'; }, 1000); } }
 function updateDocumentProgress(done, total) { setDocumentStatus('Reading barcode regions… ' + Math.round(done / Math.max(1, total) * 100) + '%'); }
 function imageCanvas(image) { const maximum = 3000; const scale = Math.min(1, maximum / Math.max(image.naturalWidth, image.naturalHeight)); const canvas = document.createElement('canvas'); canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale)); const context = canvas.getContext('2d', {willReadFrequently: true}); context.imageSmoothingEnabled = true; context.drawImage(image, 0, 0, canvas.width, canvas.height); return canvas; }
 function enhancedCanvas(source) { const canvas = document.createElement('canvas'); canvas.width = source.width; canvas.height = source.height; const context = canvas.getContext('2d', {willReadFrequently: true}); context.drawImage(source, 0, 0); const imageData = context.getImageData(0, 0, canvas.width, canvas.height); const pixels = imageData.data; for (let index = 0; index < pixels.length; index += 4) { const gray = pixels[index] * .2126 + pixels[index + 1] * .7152 + pixels[index + 2] * .0722; const contrast = clamp((gray - 128) * 1.55 + 128, 0, 255); pixels[index] = contrast; pixels[index + 1] = contrast; pixels[index + 2] = contrast; } context.putImageData(imageData, 0, 0); return canvas; }
@@ -182,8 +255,10 @@ async function processDocument(file) {
   documentFile = file;
   documentBusy = true;
   documentRun = null;
-  if (file.size > 24 * 1024 * 1024) { setDocumentStatus('This image is larger than 24 MB. Export a lower-compression JPG or PNG and try again.', 'error'); documentBusy = false; return; }
-  if (!file.type.startsWith('image/')) { setDocumentStatus('Please choose a JPG, PNG, or WebP image. PDF processing is not enabled in this version.', 'error'); documentBusy = false; return; }
+  document.getElementById('documentPanel').classList.remove('hidden');
+  setProcessingState(true, 'Preparing your scan', 'Keeping the original image local to this laptop.', 1);
+  if (file.size > 24 * 1024 * 1024) { setDocumentStatus('This image is larger than 24 MB. Export a lower-compression JPG or PNG and try again.', 'error'); documentBusy = false; setProcessingState(false); return; }
+  if (!file.type.startsWith('image/')) { setDocumentStatus('Please choose a JPG, PNG, or WebP image. PDF processing is not enabled in this version.', 'error'); documentBusy = false; setProcessingState(false); return; }
   setDocumentStatus('Loading original image…');
   const image = new Image();
   const objectUrl = URL.createObjectURL(file);
@@ -197,6 +272,7 @@ async function processDocument(file) {
       const Reader = engine.BrowserMultiFormatReader || engine.BrowserMultiFormatOneDReader;
       if (!Reader) throw new Error('Barcode reader is unavailable.');
       const reader = new Reader();
+      setProcessingState(true, 'Reading barcode regions', 'Checking overlapping crops so small labels are not missed.', 2);
       const grids = gridDefinitions(source);
       const variants = [{name: 'original', canvas: source}, {name: 'enhanced', canvas: source}];
       const tiles = grids.flatMap(grid => tileDefinitions(source, grid));
@@ -216,6 +292,7 @@ async function processDocument(file) {
       const barcodeGroups = deduplicateObservations(observations);
       documentRun = {fileName: file.name, source, observations, barcodeGroups, ocrValues: [], results: [], appended: false};
       setDocumentStatus('Barcode pass complete. Checking independent evidence…');
+      setProcessingState(true, 'Verifying the reads', 'Comparing repeated detections and validating IMEI check digits.', 3);
       const configuredGrid = requestedGrid();
       const expectedBarcodeCount = configuredGrid ? configuredGrid.rows * configuredGrid.cols : 0;
       const barcodePassComplete = expectedBarcodeCount > 0 && documentRun.barcodeGroups.length >= expectedBarcodeCount;
@@ -236,16 +313,18 @@ async function processDocument(file) {
       }
       documentRun.results = inferredLayout(documentRun.barcodeGroups);
       renderDocumentState();
+      setProcessingState(true, 'Scan ready', 'Review the highlighted results before appending them.', 4);
       setDocumentStatus('Finished. Only accepted results can be appended to the session.', 'success');
     } catch (error) {
       setDocumentStatus(error.message || 'Document processing failed.', 'error');
       document.getElementById('documentPanel').classList.remove('hidden');
     } finally {
       documentBusy = false;
+      setTimeout(() => setProcessingState(false), 700);
       if (documentRun) renderDocumentState();
     }
   };
-  image.onerror = () => { setDocumentStatus('The image could not be opened by this browser.', 'error'); documentBusy = false; };
+  image.onerror = () => { setDocumentStatus('The image could not be opened by this browser.', 'error'); documentBusy = false; setProcessingState(false); };
   image.src = objectUrl;
 }
 async function runDocumentOcr(source) { try { setDocumentStatus('Running OCR verification… this may take a minute on the first scan.'); const tesseract = await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js', 'Tesseract'); const worker = await tesseract.createWorker('eng', 1, {logger: message => { if (message.status === 'recognizing text') setDocumentStatus('Running OCR verification… ' + Math.round((message.progress || 0) * 100) + '%'); }}); await worker.setParameters({tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '11'}); const result = await worker.recognize(source); const values = documentCandidatesFromText(result?.data?.text || ''); const observations = []; for (const word of result?.data?.words || []) { for (const value of documentCandidatesFromText(word.text)) { const bbox = word.bbox || {}; const x = clamp((Number(bbox.x0) || 0) / source.width - .012, 0, 1); const y = clamp((Number(bbox.y0) || 0) / source.height - .012, 0, 1); const right = clamp((Number(bbox.x1) || source.width) / source.width + .012, 0, 1); const bottom = clamp((Number(bbox.y1) || source.height) / source.height + .012, 0, 1); observations.push({value, box: {x, y, width: Math.max(.01, right - x), height: Math.max(.01, bottom - y)}}); } } documentRun.ocrValues = values; documentRun.ocrObservations = observations; await worker.terminate(); } catch (_) { documentRun.ocrValues = []; documentRun.ocrObservations = []; setDocumentStatus('Barcode pass completed; OCR verification was unavailable.'); } }

@@ -29,10 +29,7 @@ class DashboardSyncService {
     final baseUrl = _baseUrl;
     final sessionCode = _sessionCode;
     if (baseUrl == null || sessionCode == null) throw StateError('Connect to the laptop dashboard first.');
-    final response = await http.post(
-      Uri.parse('$baseUrl/v1/sessions/$sessionCode/batches'),
-      headers: const {'Content-Type': 'application/json'},
-      body: jsonEncode({
+    final requestBody = jsonEncode({
         'batch_id': batchId,
         'tray_number': trayNumber,
         'cells': result.cells.map((cell) => {
@@ -43,10 +40,18 @@ class DashboardSyncService {
               'confidence': cell.confidence,
               'reason': cell.reason,
             }).toList(),
-      }),
-    );
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Dashboard sync failed (${response.statusCode}).');
+      });
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        final response = await http.post(Uri.parse('$baseUrl/v1/sessions/$sessionCode/batches'), headers: const {'Content-Type': 'application/json'}, body: requestBody).timeout(const Duration(seconds: 12));
+        if (response.statusCode >= 200 && response.statusCode < 300) return;
+        lastError = 'HTTP ${response.statusCode}';
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < 2) await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
     }
+    throw StateError('Dashboard sync failed after 3 attempts: $lastError');
   }
 }

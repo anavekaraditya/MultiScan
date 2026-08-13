@@ -6,6 +6,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
@@ -66,6 +67,8 @@ def process_scan(request: ScanRequest) -> dict[str, Any]:
 app = FastAPI(title="MultiScan API", version="0.1.0")
 sessions = SessionStore()
 dashboard_path = Path(__file__).with_name("dashboard.html")
+assets_path = Path(__file__).with_name("assets")
+app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
 
 @app.get("/", include_in_schema=False)

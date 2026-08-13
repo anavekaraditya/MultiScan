@@ -53,7 +53,7 @@ class _SplashGateState extends State<_SplashGate> {
     Timer(const Duration(milliseconds: 650), () { if (mounted) Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const AppShell())); });
   }
   @override
-  Widget build(BuildContext context) => Scaffold(body: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Container(width: 150, height: 165, decoration: BoxDecoration(color: const Color(0xffe4e4e4), borderRadius: BorderRadius.circular(28)), child: const Icon(Icons.qr_code_scanner, size: 92, color: Colors.black)), const SizedBox(height: 18), const Text('MultiScan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700))])));
+  Widget build(BuildContext context) => Scaffold(backgroundColor: const Color(0xff061b42), body: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Image.asset('assets/multiscan_logo.png', width: 210, height: 210, fit: BoxFit.contain), const SizedBox(height: 18), const Text('MultiScan', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700))])));
 }
 
 class AppShell extends StatefulWidget {
@@ -402,6 +402,40 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
     if (photo != null) await processImage(photo.path);
   }
 
+  Future<void> liveScan() async {
+    if (processing) return;
+    final layout = await showDialog<_LiveLayout>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose tray layout'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _LiveLayoutTile(layout: const _LiveLayout(rows: 3, columns: 5, label: '15 devices', detail: '3 × 5'), onTap: () => Navigator.pop(context, const _LiveLayout(rows: 3, columns: 5, label: '15 devices', detail: '3 × 5'))),
+            const SizedBox(height: 10),
+            _LiveLayoutTile(layout: const _LiveLayout(rows: 4, columns: 6, label: '24 devices', detail: '4 × 6'), onTap: () => Navigator.pop(context, const _LiveLayout(rows: 4, columns: 6, label: '24 devices', detail: '4 × 6'))),
+            const SizedBox(height: 10),
+            _LiveLayoutTile(layout: const _LiveLayout(rows: 4, columns: 16, label: '64 devices', detail: '4 × 16'), onTap: () => Navigator.pop(context, const _LiveLayout(rows: 4, columns: 16, label: '64 devices', detail: '4 × 16'))),
+            const SizedBox(height: 10),
+            _LiveLayoutTile(layout: const _LiveLayout(rows: 8, columns: 14, label: '112 devices', detail: '8 × 14'), onTap: () => Navigator.pop(context, const _LiveLayout(rows: 8, columns: 14, label: '112 devices', detail: '8 × 14'))),
+          ],
+        ),
+      ),
+    );
+    if (layout == null || !mounted) return;
+    setState(() => processing = true);
+    try {
+      final result = await VisionScannerService.instance.startLiveScan(rows: layout.rows, columns: layout.columns);
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onProcessed(result);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => processing = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Live scan unavailable: $error')));
+    }
+  }
+
   Future<void> processImage(String imagePath) async {
     if (processing) return;
     setState(() => processing = true);
@@ -425,6 +459,7 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
             : Stack(fit: StackFit.expand, children: [
                 _CameraPreview(controller: controller, error: cameraError),
                 const Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: Padding(padding: EdgeInsets.fromLTRB(22, 12, 22, 0), child: Text('Fit the tray or device inside the guide', textAlign: TextAlign.center, style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700, shadows: [Shadow(blurRadius: 5)]))))),
+                Positioned(top: 66, left: 0, right: 0, child: Center(child: FilledButton.icon(onPressed: liveScan, icon: const Icon(Icons.document_scanner_outlined), label: const Text('Live scan'), style: FilledButton.styleFrom(backgroundColor: Colors.black54, foregroundColor: Colors.white)))),
                 Positioned(
                   left: 20,
                   right: 20,
@@ -441,6 +476,37 @@ class _CapturePageState extends State<CapturePage> with WidgetsBindingObserver {
                   ),
                 ),
               ]),
+      );
+}
+
+class _LiveLayout {
+  final int rows;
+  final int columns;
+  final String label;
+  final String detail;
+  const _LiveLayout({required this.rows, required this.columns, required this.label, required this.detail});
+}
+
+class _LiveLayoutTile extends StatelessWidget {
+  final _LiveLayout layout;
+  final VoidCallback onTap;
+  const _LiveLayoutTile({required this.layout, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: const Color(0xffedf5f8), borderRadius: BorderRadius.circular(14)),
+          child: Row(children: [
+            const Icon(Icons.grid_view_rounded, color: Color(0xff23739a), size: 28),
+            const SizedBox(width: 14),
+            Expanded(child: Text(layout.label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            Text(layout.detail, style: const TextStyle(color: Color(0xff52606d), fontWeight: FontWeight.w600)),
+          ]),
+        ),
       );
 }
 
@@ -708,7 +774,18 @@ class _ReviewPageState extends State<ReviewPage> {
     return trayCells.length.clamp(1, 4);
   }
 
-  void _showCellDetails(BuildContext context, DemoCell cell) => showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (_) => Padding(padding: const EdgeInsets.fromLTRB(20, 4, 20, 28), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(cell.position, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)), const SizedBox(height: 8), Text(cell.reason, style: const TextStyle(color: Color(0xff505565))), const SizedBox(height: 18), Text(cell.imei ?? 'No accepted IMEI', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)), const SizedBox(height: 18), SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: Text(cell.status == CellStatus.accepted ? 'Close' : 'Retake this position')))])));
+  void _showCellDetails(BuildContext context, DemoCell cell) => showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (_) => Padding(padding: const EdgeInsets.fromLTRB(20, 4, 20, 28), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(cell.position, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)), const SizedBox(height: 8), Text(cell.reason, style: const TextStyle(color: Color(0xff505565))), const SizedBox(height: 18), Text(cell.imei ?? 'No detected value', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)), const SizedBox(height: 18), Row(children: [Expanded(child: OutlinedButton(onPressed: () async { Navigator.pop(context); await _editCell(cell); }, child: const Text('Correct value'))), const SizedBox(width: 10), Expanded(child: FilledButton(onPressed: () => Navigator.pop(context), child: Text(cell.status == CellStatus.accepted ? 'Close' : 'Retake')))])])));
+
+  Future<void> _editCell(DemoCell cell) async {
+    final controller = TextEditingController(text: cell.imei ?? '');
+    final value = await showDialog<String>(context: context, builder: (_) => AlertDialog(title: Text('Correct ${cell.position}'), content: TextField(controller: controller, autofocus: true, keyboardType: TextInputType.number, maxLength: 15, decoration: const InputDecoration(labelText: '15-digit value')), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Save'))]));
+    controller.dispose();
+    final digits = value?.replaceAll(RegExp(r'\D'), '') ?? '';
+    if (digits.length != 15 || !mounted) return;
+    final updated = widget.cells.map((item) => item.position == cell.position ? DemoCell(item.position, CellStatus.accepted, digits, 'Manually corrected', source: 'manual', confidence: 1, boxes: item.boxes) : item).toList(growable: false);
+    widget.onCellsChanged(updated);
+    setState(() {});
+  }
 }
 
 class _HiFiReviewCell extends StatelessWidget {

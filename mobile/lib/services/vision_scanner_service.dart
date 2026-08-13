@@ -79,4 +79,26 @@ class VisionScannerService {
       groupCount: (response['groupCount'] as num?)?.toInt() ?? cells.length,
     );
   }
+
+  Future<VisionScanResult> startLiveScan({required int rows, required int columns}) async {
+    final response = await _channel.invokeMethod<Map<Object?, Object?>>('startLiveScan', {
+      'rows': rows,
+      'columns': columns,
+    });
+    if (response == null) throw StateError('Live scanner returned no result.');
+    final rawCells = (response['cells'] as List<Object?>? ?? const <Object?>[]).whereType<Map<Object?, Object?>>();
+    final cells = rawCells.map(VisionCellResult.fromMap).toList();
+    if (cells.isEmpty) throw StateError('No 15-digit values were recognized.');
+    final imagePath = response['imagePath'] as String? ?? '';
+    return VisionScanResult(
+      imagePath: imagePath,
+      cells: cells,
+      rawText: response['rawText'] as String? ?? '',
+      processingVersion: response['processingVersion'] as String? ?? 'ios-visionkit-live-v1',
+      barcodeValues: (response['barcodeValues'] as List<Object?>? ?? const <Object?>[]).whereType<String>().toList(growable: false),
+      rawBarcodeCount: (response['rawBarcodeCount'] as num?)?.toInt() ?? 0,
+      uniqueBarcodeCount: (response['uniqueBarcodeCount'] as num?)?.toInt() ?? 0,
+      groupCount: (response['groupCount'] as num?)?.toInt() ?? cells.length,
+    );
+  }
 }
